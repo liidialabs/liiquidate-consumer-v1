@@ -1,0 +1,91 @@
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.20;
+
+import { ReceiverTemplate } from "./interfaces/receiver/ReceiverTemplate.sol";
+import { ILiquidationAdapter } from "./interfaces/adapter/ILiquidationAdapter.sol";
+import { AdapterRegistry } from "./AdapterRegistry.sol";
+import { FlashLoanRouter } from "./FlashLoanRouter.sol";
+
+/// @title Liiquidate
+/// @notice ...
+/// @dev ...
+contract Liiquidate is ReceiverTemplate {
+    struct LiquidationReport {
+        bytes32 protocol;
+        address user;
+        address collateralAsset;
+        address debtAsset;
+        uint256 debtToCover;
+    }
+
+    AdapterRegistry public immutable registry;
+    FlashLoanRouter public immutable flashLoan;
+
+    event LiquidationExecuted(
+        bytes32 indexed protocol,
+        address indexed user,
+        address indexed adapter,
+        bool success
+    );
+
+    constructor(address _registry, address _flashLoan) {
+        registry = AdapterRegistry(_registry);
+        flashLoan = FlashLoanRouter(_flashLoan);
+    }
+
+    function _processReport(
+        bytes calldata report
+    ) internal override {
+        LiquidationReport[] memory jobs =
+            abi.decode(report, (LiquidationReport[]));
+
+        for (uint256 i = 0; i < jobs.length; i++) {
+            _executeOne(jobs[i]);
+        }
+    }
+
+    function _executeOne(
+        LiquidationReport memory job
+    ) internal {
+        // Get adapter address
+        address adapterAddr = registry.getAdapter(job.protocol);
+        // Check not zero address
+        if (adapterAddr == address(0)) {
+            emit LiquidationExecuted(
+                job.protocol,
+                job.user,
+                address(0),
+                false
+            );
+            return;
+        }
+
+        // Instantiate adapter
+        ILiquidationAdapter adapter = ILiquidationAdapter(adapterAddr);
+        // Fetch target contract and callData
+        ILiquidationAdapter.ExecutionPayload memory payload = adapter
+            .buildExecutionPayload(
+                job.user,
+                job.debtToCover,
+                job.debtAsset,
+                job.collateralAsset
+            );
+
+        // Parse to flashloan to 1. Take flashLoan, 2. Liquidate, 3. Swap, 4. Repay
+        flashLoan.flashLoan(
+            job.debtAsset, 
+            job.collateralAsset,
+            job.debtToCover, 
+            payload.target,
+            payload.callData
+        );
+
+        // Event
+        emit LiquidationExecuted(
+            job.protocol,
+            job.user,
+            adapterAddr,
+            success
+        );
+    }
+}

@@ -1,0 +1,359 @@
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.20;
+
+import {IPoolManager} from "@uniswap/v4-core/src/interfaces/IPoolManager.sol";
+import {PoolKey} from "@uniswap/v4-core/src/types/PoolKey.sol";
+import {Currency} from "@uniswap/v4-core/src/types/Currency.sol";
+import {BalanceDelta} from "@uniswap/v4-core/src/types/BalanceDelta.sol";
+import {
+    IUnlockCallback
+} from "@uniswap/v4-core/src/interfaces/callback/IUnlockCallback.sol";
+import {SqrtPriceMath} from "@uniswap/v4-core/src/libraries/SqrtPriceMath.sol";
+import {SwapMath} from "@uniswap/v4-core/src/libraries/SwapMath.sol";
+import {ISwapAdapter} from "../interfaces/swapAdapter/ISwapAdapter.sol";
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
+import {MAX_SQRT_PRICE, MIN_SQRT_PRICE} from "../types/Constants.sol";
+
+contract UniswapV4Adapter is ISwapAdapter, IUnlockCallback {
+    IPoolManager public immutable poolManager;
+
+    bytes32 public constant PROTOCOL_ID = keccak256("UNISWAP_V4");
+
+    mapping(bytes32 => ISwapAdapter.SwapPath) public registeredPaths;
+
+    constructor(address _poolManager) Ownable(msg.sender) {
+        poolManager = IPoolManager(_poolManager);
+    }
+
+    modifier onlyPoolManager() {
+        require(msg.sender == address(poolManager), "not pool manager");
+        _;
+    }
+
+    function swapMultiHop(
+        MultiHopParams calldata params
+    ) external override returns (uint256 amountIn, uint256 amountOut) {
+        // Fetch SwapPath based on type of swap protocol to use
+        ISwapAdapter.SwapPath memory swapPath = getSwapPath(
+            params.tokenIn,
+            params.tokenOut
+        );
+
+        // Execute through PoolManager's unlock callback
+        bytes memory result = poolManager.unlock(abi.encode(params, swapPath));
+
+        (amountIn, amountOut) = abi.decode(result, (uint256, uint256));
+
+        // Validate slippage
+        if (params.isExactInput) {
+            require(amountOut >= params.minAmountOut, "Insufficient output");
+        } else {
+            require(amountIn <= params.maxAmountIn, "Excessive input");
+        }
+    }
+
+    function unlockCallback(
+        bytes calldata data
+    ) external onlyPoolManager returns (bytes memory) {
+        // decode data
+        (MultiHopParams memory params, SwapPath memory path) = abi.decode(
+            data,
+            (MultiHopParams, SwapPath)
+        );
+
+        uint256 currentAmount = params.isExactInput
+            ? params.amountIn
+            : params.amountOut;
+
+        Currency currentCurrency = Currency.wrap(params.tokenIn);
+
+        // Execute each hop
+        for (uint256 i = 0; i < path.poolData.length; i++) {
+            PoolKey memory poolKey = abi.decode(path.poolData[i], (PoolKey));
+
+            // zeroForOne is a boolean flag that indicates the swap direction in the pool:
+            //  true: Trade currency0 → currency1 (selling currency0)
+            //  false: Trade currency1 → currency0 (selling currency1)
+            bool zeroForOne = Currency.unwrap(currentCurrency) ==
+                Currency.unwrap(poolKey.currency0);
+
+            // Determine amount based on swap direction
+            // amountSpecified < 0 = amount in
+            // amountSpecified > 0 = amount out
+            int256 specifiedAmount;
+            if (params.isExactInput) {
+                // Exact input: negative amount (selling)
+                specifiedAmount = -int256(currentAmount);
+            } else {
+                // Exact output: positive amount (buying)
+                // For last hop, use final amount; else use max
+                if (i == path.poolData.length - 1) {
+                    specifiedAmount = int256(currentAmount);
+                } else {
+                    specifiedAmount = type(int256).max; // Max intermediate
+                }
+            }
+
+            int256 d = poolManager.swap(
+                poolKey,
+                IPoolManager.SwapParams({
+                    zeroForOne: zeroForOne,
+                    amountSpecified: specifiedAmount,
+                    sqrtPriceLimitX96: zeroForOne
+                        ? MIN_SQRT_PRICE + 1
+                        : MAX_SQRT_PRICE - 1
+                }),
+                "" // No hook data
+            );
+
+            BalanceDelta delta = BalanceDelta.wrap(d);
+
+            // Update for next iteration
+            currentAmount = uint256(
+                zeroForOne ? -delta.amount1() : -delta.amount0()
+            );
+            currentCurrency = zeroForOne
+                ? poolKey.currency1
+                : poolKey.currency0;
+        }
+
+        // Take final output
+        uint256 finalAmountOut = params.isExactInput
+            ? currentAmount
+            : params.amountOut;
+
+        require(finalAmountOut >= params.minAmountOut, "amount out < min");
+
+        _take(currentCurrency, params.recipient, finalAmountOut);
+
+        // Sync
+        poolManager.sync(params.tokenIn);
+
+        // Settle initial debt
+        uint256 finalAmountIn = params.isExactInput
+            ? params.amountIn
+            : currentAmount;
+        _settle(Currency.wrap(params.tokenIn), params.recipient, finalAmountIn);
+
+        return "";
+    }
+
+    function quoteMultiHop(
+        MultiHopParams calldata params
+    ) external view override returns (uint256 amountIn, uint256 amountOut) {
+        SwapPath memory path = getSwapPath(
+            params.tokenIn, 
+            params.tokenOut
+        );
+
+        uint256 currentAmount = params.isExactInput
+            ? params.amountIn
+            : params.amountOut;
+
+        Currency currentCurrency = Currency.wrap(params.tokenIn);
+
+        for (uint256 i = 0; i < path.poolData.length; i++) {
+            PoolKey memory poolKey = abi.decode(
+                path.poolData[i],
+                (PoolKey)
+            );
+
+            // Get current pool state
+            (uint160 sqrtPriceX96, int24 tick, ) = poolManager.getSlot0(
+                poolKey.toId()
+            );
+
+            // Get liquidity for accurate quoting
+            uint128 liquidity = poolManager.getLiquidity(poolKey.toId());
+
+            bool zeroForOne = Currency.unwrap(currentCurrency) ==
+                Currency.unwrap(poolKey.currency0);
+
+            // Calculate the output amount for this hop
+            if (params.isExactInput) {
+                currentAmount = _quoteExactInputSingle(
+                    currentAmount,
+                    sqrtPriceX96,
+                    liquidity,
+                    zeroForOne,
+                    poolKey.fee
+                );
+            } else {
+                currentAmount = _quoteExactOutputSingle(
+                    currentAmount,
+                    sqrtPriceX96,
+                    liquidity,
+                    zeroForOne,
+                    poolKey.fee
+                );
+            }
+
+            currentCurrency = zeroForOne
+                ? poolKey.currency1
+                : poolKey.currency0;
+        }
+
+        return
+            params.isExactInput
+                ? (params.amountIn, currentAmount)
+                : (currentAmount, params.amountOut);
+    }
+
+    function protocolId() external pure override returns (bytes32) {
+        return PROTOCOL_ID;
+    }
+
+    function isPathSupported(
+        SwapPath calldata path
+    ) external view override returns (bool) {
+        // Check all pools exist
+        for (uint256 i = 0; i < path.poolData.length; i++) {
+            PoolKey memory poolKey = abi.decode(path.poolData[i], (PoolKey));
+            if (!poolManager.isPoolInitialized(poolKey.toId())) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    function registerSwapPath(
+        address tokenIn,
+        address tokenOut,
+        address[] calldata path,
+        bytes[] calldata poolData,
+        uint24[] calldata fees
+    ) external override onlyOwner {
+        require(
+            tokenIn != address(0) && tokenOut != address(0),
+            "Invalid tokens"
+        );
+        require(path.length >= 2, "Path must have at least 2 tokens");
+        require(path[0] == tokenIn, "Path must start with tokenIn");
+        require(
+            path[path.length - 1] == tokenOut,
+            "Path must end with tokenOut"
+        );
+        require(poolData.length == path.length - 1, "poolData length mismatch");
+        require(fees.length == path.length - 1, "fees length mismatch");
+
+        bytes32 pathKey = _getPathKey(tokenIn, tokenOut);
+        registeredPaths[pathKey] = ISwapAdapter.SwapPath({
+            tokens: path,
+            poolData: poolData,
+            fees: fees
+        });
+
+        emit ISwapAdapter.SwapPathRegistered(
+            tokenIn,
+            tokenOut,
+            path,
+            poolData,
+            fees
+        );
+    }
+
+    function getSwapPath(
+        address tokenIn,
+        address tokenOut
+    ) external view override returns (ISwapAdapter.SwapPath memory path) {
+        bytes32 pathKey = _getPathKey(tokenIn, tokenOut);
+        return registeredPaths[pathKey];
+    }
+
+    receive() external payable {}
+
+    // Internal helper functions
+
+    function _settle(Currency currency, address from, uint256 amount) internal {
+        IERC20(Currency.unwrap(currency)).transferFrom(
+            from,
+            address(poolManager),
+            amount
+        );
+        poolManager.settle();
+    }
+
+    function _take(Currency currency, address to, uint256 amount) internal {
+        poolManager.take(currency, to, amount);
+    }
+
+    function _quoteExactInputSingle(
+        uint256 amountIn,
+        uint160 sqrtPriceX96,
+        uint128 liquidity,
+        bool zeroForOne,
+        uint24 fee
+    ) internal pure returns (uint256 amountOut) {
+        // Apply fee to input amount
+        uint256 amountInWithFee = (amountIn * (1000000 - fee)) / 1000000;
+
+        // Calculate next sqrt price after consuming the input amount
+        uint160 nextSqrtPrice = SqrtPriceMath.getNextSqrtPriceFromInput(
+            sqrtPriceX96,
+            liquidity,
+            amountInWithFee,
+            zeroForOne
+        );
+
+        // Calculate the amount out from the price change
+        if (zeroForOne) {
+            amountOut = SqrtPriceMath.getAmount1Delta(
+                nextSqrtPrice,
+                sqrtPriceX96,
+                liquidity,
+                false
+            );
+        } else {
+            amountOut = SqrtPriceMath.getAmount0Delta(
+                sqrtPriceX96,
+                nextSqrtPrice,
+                liquidity,
+                false
+            );
+        }
+    }
+
+    function _quoteExactOutputSingle(
+        uint256 amountOut,
+        uint160 sqrtPriceX96,
+        uint128 liquidity,
+        bool zeroForOne,
+        uint24 fee
+    ) internal pure returns (uint256 amountIn) {
+        // Calculate next sqrt price needed to output the desired amount
+        uint160 nextSqrtPrice = SqrtPriceMath.getNextSqrtPriceFromOutput(
+            sqrtPriceX96,
+            liquidity,
+            amountOut,
+            zeroForOne
+        );
+
+        // Calculate the amount in needed from the price change
+        if (zeroForOne) {
+            amountIn = SqrtPriceMath.getAmount0Delta(
+                sqrtPriceX96,
+                nextSqrtPrice,
+                liquidity,
+                true
+            );
+        } else {
+            amountIn = SqrtPriceMath.getAmount1Delta(
+                nextSqrtPrice,
+                sqrtPriceX96,
+                liquidity,
+                true
+            );
+        }
+
+        // Add fee back to the input amount
+        amountIn = (amountIn * 1000000) / (1000000 - fee) + 1;
+    }
+
+    function _getPathKey(
+        address tokenIn,
+        address tokenOut
+    ) internal pure returns (bytes32) {
+        return keccak256(abi.encode(tokenIn, tokenOut));
+    }
+}
