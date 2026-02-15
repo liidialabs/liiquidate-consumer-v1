@@ -5,7 +5,7 @@ import {Test} from "forge-std/Test.sol";
 import {AdapterRegistry} from "../../src/AdapterRegistry.sol";
 import {
     ILiquidationAdapter
-} from "../../src/interfaces/adapter/ILiquidationAdapter.sol";
+} from "../../src/interfaces/liquidationAdapter/ILiquidationAdapter.sol";
 
 /**
  * @title AdapterRegistryTest
@@ -125,7 +125,7 @@ contract AdapterRegistryTest is Test {
 
     // ========== GET ADAPTER TESTS ==========
 
-    function test_GetAdapter_ReturnsZeroForUnregistered() public {
+    function test_GetAdapter_ReturnsZeroForUnregistered() public view {
         address stored = registry.getAdapter(PROTOCOL_ID);
         assertEq(stored, address(0));
     }

@@ -7,213 +7,63 @@ import {AdapterRegistry} from "../../src/AdapterRegistry.sol";
 import {FlashLoanRouter} from "../../src/FlashLoanRouter.sol";
 import {
     ILiquidationAdapter
-} from "../../src/interfaces/adapter/ILiquidationAdapter.sol";
-
-/**
- * @title MockLiquidationAdapter
- * @notice Mock implementation of ILiquidationAdapter for testing
- */
-contract MockLiquidationAdapter is ILiquidationAdapter {
-    bytes32 public protocolId = keccak256("MOCK_PROTOCOL");
-    string public adapterName = "Mock Liquidation Adapter";
-
-    // Tracking
-    uint256 public riskStateCallCount;
-    uint256 public liquidationParamsCallCount;
-    uint256 public executionPayloadCallCount;
-
-    // Configuration for test scenarios
-    bool public isLiquidatable = true;
-    uint256 public riskMetricValue = 0.5e18; // Below 1e18 = liquidatable
-    uint256 public collateralValue = 1000e18;
-    uint256 public debtValue = 600e18;
-
-    // For tracking calls
-    struct CallLog {
-        address user;
-        address collateralAsset;
-        address debtAsset;
-        uint256 debtToCover;
-        bytes callData;
-    }
-
-    CallLog[] public callLogs;
-
-    event AdapterCalled(
-        address indexed user,
-        address indexed collateral,
-        address indexed debt,
-        uint256 amount
-    );
-
-    constructor(bytes32 _protocolId, string memory _name) {
-        protocolId = _protocolId;
-        adapterName = _name;
-    }
-
-    function protocol() external view override returns (bytes32) {
-        return protocolId;
-    }
-
-    function name() external view override returns (string memory) {
-        return adapterName;
-    }
-
-    function getRiskState(
-        address user
-    ) external override returns (RiskState memory) {
-        riskStateCallCount++;
-
-        return
-            RiskState({
-                liquidatable: isLiquidatable,
-                riskMetric: riskMetricValue,
-                collateralUSD: collateralValue,
-                debtUSD: debtValue
-            });
-    }
-
-    function getLiquidationParams(
-        address user,
-        address collateralAsset,
-        address debtAsset
-    ) external override returns (LiquidationParams memory) {
-        liquidationParamsCallCount++;
-
-        return
-            LiquidationParams({
-                collateralAsset: collateralAsset,
-                debtAsset: debtAsset,
-                maxDebtToCover: debtValue / 2, // 50% close factor
-                expectedCollateralOut: ((debtValue / 2) * 105) / 100, // 5% bonus
-                liquidationBonus: 500 // 5%
-            });
-    }
-
-    function buildExecutionPayload(
-        address user,
-        uint256 debtToCover,
-        address debtAsset,
-        address collateralAsset
-    ) external override returns (ExecutionPayload memory) {
-        executionPayloadCallCount++;
-
-        bytes memory callData = abi.encodeWithSignature(
-            "executeLiquidation(address,uint256,address,address)",
-            user,
-            debtToCover,
-            debtAsset,
-            collateralAsset
-        );
-
-        callLogs.push(
-            CallLog({
-                user: user,
-                collateralAsset: collateralAsset,
-                debtAsset: debtAsset,
-                debtToCover: debtToCover,
-                callData: callData
-            })
-        );
-
-        emit AdapterCalled(user, collateralAsset, debtAsset, debtToCover);
-
-        return ExecutionPayload({target: address(this), callData: callData});
-    }
-
-    function setLiquidatable(bool _liquidatable) external {
-        isLiquidatable = _liquidatable;
-    }
-
-    function setRiskMetric(uint256 _riskMetric) external {
-        riskMetricValue = _riskMetric;
-    }
-
-    function setValues(uint256 _collateral, uint256 _debt) external {
-        collateralValue = _collateral;
-        debtValue = _debt;
-    }
-
-    function getCallLogsLength() external view returns (uint256) {
-        return callLogs.length;
-    }
-}
-
-/**
- * @title MockFlashLoanRouterForLiiquidate
- * @notice Mock flash loan router that simulates successful flash loans
- */
-contract MockFlashLoanRouterForLiiquidate {
-    uint256 public flashLoanCount;
-
-    struct FlashLoanCall {
-        address debtAsset;
-        address collateralAsset;
-        uint256 debtToCover;
-        address targetContract;
-        bytes callData;
-    }
-
-    FlashLoanCall[] public calls;
-
-    event FlashLoanExecuted(
-        address indexed debtAsset,
-        uint256 amount,
-        address indexed targetContract
-    );
-
-    function flashLoan(
-        address debtAsset,
-        address collateralAsset,
-        uint256 debtToCover,
-        address targetContract,
-        bytes calldata data
-    ) external {
-        flashLoanCount++;
-        calls.push(
-            FlashLoanCall({
-                debtAsset: debtAsset,
-                collateralAsset: collateralAsset,
-                debtToCover: debtToCover,
-                targetContract: targetContract,
-                callData: data
-            })
-        );
-
-        emit FlashLoanExecuted(debtAsset, debtToCover, targetContract);
-    }
-}
-
-/**
- * @title MockForwarder
- * @notice Mock Chainlink Forwarder for ReceiverTemplate testing
- */
-contract MockForwarder {
-    function forward(address receiver, bytes calldata data) external {
-        (bool success, ) = receiver.call(data);
-        require(success, "Forward failed");
-    }
-}
+} from "../../src/interfaces/liquidationAdapter/ILiquidationAdapter.sol";
+import {UniversalSwapRouter} from "../../src/UniversalSwapRouter.sol";
+import {LiquidationParams} from "../../src/types/DataTypes.sol";
+import {PoolKey} from "@uniswap/v4-core/src/types/PoolKey.sol";
+import { PoolIdLibrary, PoolId } from "@uniswap/v4-core/src/types/PoolId.sol";
+import {IHooks} from "@uniswap/v4-core/src/interfaces/IHooks.sol";
+import {Currency} from "@uniswap/v4-core/src/types/Currency.sol";
+import {MIN_SQRT_PRICE} from "../../src/types/Constants.sol";
+import {ISwapAdapter} from "../../src/interfaces/swapAdapter/ISwapAdapter.sol";
+import {MockDebtManager} from "../mocks/MockDebtManager.sol";
+import {MockDebtManagerAdapter} from "../mocks/MockDebtManagerAdapter.sol";
+import {MockUniswapV4PoolManager} from "../mocks/MockUniswapV4PoolManager.sol";
+import {MockChainlinkAutomationForwarder} from "../mocks/MockChainlinkAutomationForwarder.sol";
+import {AaveV3} from "../../src/flashloans/AaveV3.sol";
+import {UniswapV4} from "../../src/flashloans/UniswapV4.sol";
+import {UniswapV4Adapter} from "../../src/swappers/UniswapV4Adapter.sol";
+import {MockAaveV3Pool} from "../mocks/MockAaveV3Pool.sol";
+import {MockERC20} from "../mocks/MockERC20.sol";
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
 /**
  * @title LiiquidateTest
  * @notice Comprehensive test suite for the Liiquidate contract
  */
 contract LiiquidateTest is Test {
+    using PoolIdLibrary for PoolKey;
+
     Liiquidate public liiquidate;
     AdapterRegistry public registry;
-    MockFlashLoanRouterForLiiquidate public flashLoanRouter;
-    MockLiquidationAdapter public mockAdapter;
-    MockForwarder public forwarder;
+    FlashLoanRouter public flashRouter;
+    UniversalSwapRouter public swapRouter;
+    MockDebtManager public debtManager;
+    MockDebtManagerAdapter public debtManagerAdapter;
+    MockDebtManager public debtManager2;
+    MockDebtManagerAdapter public debtManagerAdapter2;
+    MockUniswapV4PoolManager public uniPoolManager;
+    MockAaveV3Pool public aaveV3Pool;
+    AaveV3 public aaveV3;
+    UniswapV4 public uniswapV4;
+    UniswapV4Adapter public swapAdapter;
+    MockERC20 public debtToken;
+    MockERC20 public collateralToken;
+    MockChainlinkAutomationForwarder public chainLinkForwarder;
 
-    address public owner = address(this);
-    address public borrower = makeAddr("borrower");
-    address public liquidator = makeAddr("liquidator");
+    address public user = address(0x1);
+    address public user2 = address(0x2);
+    address public liquidator = address(0x3);
 
-    address public usdc = makeAddr("usdc");
-    address public weth = makeAddr("weth");
+    address public owner;
+    address public workflowOwner;
+    bytes32 public workflowId;
+    bytes10 public workflowName;
 
-    bytes32 public constant MOCK_PROTOCOL = keccak256("MOCK_PROTOCOL");
+    uint256 constant INITIAL_BALANCE = 1_000_000e18;
+    uint256 constant POOL_FEE = 3000; // 0.5%
+    uint256 constant DEBT_TO_COVER = 700e18;
+    uint256 constant DEBT_TO_COVER2 = 700e18;
 
     event LiquidationExecuted(
         bytes32 indexed protocol,
@@ -223,355 +73,410 @@ contract LiiquidateTest is Test {
     );
 
     function setUp() public {
-        registry = new AdapterRegistry();
-        flashLoanRouter = new MockFlashLoanRouterForLiiquidate();
-        mockAdapter = new MockLiquidationAdapter(
-            MOCK_PROTOCOL,
-            "Mock Protocol Adapter"
+        owner = address(this);
+
+        // Create tokens
+        debtToken = new MockERC20("Debt Token", "DEBT", 18);
+        collateralToken = new MockERC20("Collateral Token", "COLL", 18);
+
+        ///////// CHAINLINK /////////
+
+        chainLinkForwarder = new MockChainlinkAutomationForwarder();
+
+        workflowId = keccak256("liquidation-workflow");
+        workflowName = bytes10(keccak256("LiqBot"));
+        workflowOwner = makeAddr("workflowOwner");
+
+        chainLinkForwarder.createWorkflow(workflowId, workflowName, workflowOwner);
+
+        ////////// AAVE V3 POOL ///////////
+
+        aaveV3Pool = new MockAaveV3Pool();
+        
+        aaveV3Pool.setAssetSupported(address(debtToken), true);
+        aaveV3Pool.setAssetReservement(address(debtToken), 1_000_000e18);
+        debtToken.mint(address(aaveV3Pool), 1_000_000e18);
+
+        aaveV3Pool.setAssetSupported(address(collateralToken), true);
+        aaveV3Pool.setAssetReservement(address(collateralToken), INITIAL_BALANCE);
+        collateralToken.mint(address(aaveV3Pool), INITIAL_BALANCE);
+
+        //////// UNISWAP V4 POOL ///////////
+
+        uniPoolManager = new MockUniswapV4PoolManager();
+
+        /////////////// DEBTMANAGER ////////////////
+
+        // Create mock debtManager & debtManagerAdapter
+        debtManager = new MockDebtManager();
+        debtManagerAdapter = new MockDebtManagerAdapter(
+            address(debtManager),
+            keccak256("DebtManager1")
         );
-        forwarder = new MockForwarder();
+
+        // 
+        debtToken.mint(address(debtManager), 1_000_000e18);
+        collateralToken.mint(address(debtManager), 1_000_000e18);
+
+        // Configure collateral
+        // 10% liquidation bonus, 80% liquidation threshold
+        debtManager.configureCollateral(
+            address(collateralToken),
+            0.1e18,  // 10% bonus for liquidators
+            0.8e18   // 80% LTV threshold
+        );
+        
+        // Configure debt asset
+        debtManager.configureDebtAsset(
+            address(debtToken),
+            0.05e18,      // 5% annual rate
+            1000000e18    // Max borrow
+        );
+        
+        // Set initial prices
+        // WETH = $2000, USDC = $1
+        debtManager.setAssetPrice(address(collateralToken), 2000e8);
+        debtManager.setAssetPrice(address(debtToken), 1e8);
+
+        // Setup user account
+        // User deposits 1 WETH ($2000) as collateral
+        // User borrows 1200 USDC ($1200) - this is 60% LTV initially (healthy)
+        debtManager.setupUserAccount(
+            user,
+            address(collateralToken),
+            1e18,      // 1 WETH - collateral
+            address(debtToken),
+            1200e18    // 1200 USDC - debt
+        );
+
+        debtManager.setupUserAccount(
+            user2,
+            address(collateralToken),
+            1e18,      // 1 WETH - collateral
+            address(debtToken),
+            1200e18    // 1200 USDC - debt
+        );
+
+        ///////// REGISTRY ////////
+
+        registry = new AdapterRegistry();
+        registry.registerAdapter(
+            debtManagerAdapter.protocol(), 
+            address(debtManagerAdapter)
+        );
+
+        ////// SWAP /////////
+
+        // Create swap router
+        swapRouter = new UniversalSwapRouter();
+
+        // Create swap adapter
+        swapAdapter = new UniswapV4Adapter(
+            address(uniPoolManager)
+        );
+
+        // register adapter and add to priority queu
+        swapRouter.registerAdapter(address(swapAdapter));
+
+        bytes32[] memory protocols = new bytes32[](1);
+        protocols[0] = swapAdapter.protocolId();
+        swapRouter.setProtocolPriority(protocols);
+
+        _createPoolKeys();
+
+        ////// FLASH LOAN //////////
+
+        // Create uniswap flash loan provide
+        uniswapV4 = new UniswapV4(
+            address(uniPoolManager),
+            address(swapRouter)
+        );
+
+        // Create aave flash loan provider
+        aaveV3 = new AaveV3(
+            address(aaveV3Pool), 
+            address(swapRouter)
+        );
+
+        // deploy router registry, add providers then set priority
+        flashRouter = new FlashLoanRouter();
+
+        flashRouter.addProvider(address(uniswapV4));
+        flashRouter.addProvider(address(aaveV3));
+        
+        bytes32[] memory __protocols = new bytes32[](2);
+        __protocols[0] = aaveV3.id();
+        __protocols[1] = uniswapV4.id();
+
+        flashRouter.setProviderPriority(__protocols);
+
+        // Setup initial balances
+        debtToken.mint(address(uniPoolManager), 1_000_000e18);
+        collateralToken.mint(address(uniPoolManager), 1_000_000e18);
+
+        /////// LIIQUIDATE /////////
 
         liiquidate = new Liiquidate(
             address(registry),
-            address(flashLoanRouter)
+            address(flashRouter),
+            address(chainLinkForwarder)
         );
-
-        // Register adapter
-        registry.registerAdapter(MOCK_PROTOCOL, address(mockAdapter));
     }
 
-    // ========== BASIC LIQUIDATION TESTS ==========
+    // ========== HELPER ============
 
-    function test_ExecuteOne_SingleLiquidation() public {
-        Liiquidate.LiquidationReport memory report = Liiquidate
-            .LiquidationReport({
-                protocol: MOCK_PROTOCOL,
-                user: borrower,
-                collateralAsset: weth,
-                debtAsset: usdc,
-                debtToCover: 100e18
-            });
+    function _createPoolKeys() internal {
+        // 1. Setup token path
+        address[] memory path = new address[](2);
+        path[0] = address(collateralToken);
+        path[1] = address(debtToken);
 
-        bytes memory encodedReport = abi.encode(
-            new Liiquidate.LiquidationReport[](1)
-        );
-        // Manually construct the array with one report
-        Liiquidate.LiquidationReport[]
-            memory reports = new Liiquidate.LiquidationReport[](1);
-        reports[0] = report;
-        encodedReport = abi.encode(reports);
-
-        // Need to call via _processReport which is internal, so we test through a wrapper
-        // For now we test the adapter is called correctly
-        assertEq(registry.getAdapter(MOCK_PROTOCOL), address(mockAdapter));
-    }
-
-    function test_LiquidationReport_StructEncoding() public {
-        Liiquidate.LiquidationReport[]
-            memory reports = new Liiquidate.LiquidationReport[](1);
-        reports[0] = Liiquidate.LiquidationReport({
-            protocol: MOCK_PROTOCOL,
-            user: borrower,
-            collateralAsset: weth,
-            debtAsset: usdc,
-            debtToCover: 100e18
+        // 2. Create PoolKey for the tokenA/tokenB pool
+        PoolKey memory poolKey = PoolKey({
+            currency0: Currency.wrap(address(collateralToken)),
+            currency1: Currency.wrap(address(debtToken)),
+            fee: uint24(POOL_FEE),
+            tickSpacing: 60,  // Adjust based on your fee tier
+            hooks: IHooks(address(0))  // No hooks, or use your hooks address
         });
 
-        bytes memory encoded = abi.encode(reports);
-        Liiquidate.LiquidationReport[] memory decoded = abi.decode(
-            encoded,
-            (Liiquidate.LiquidationReport[])
+        // 3. Encode the PoolKey (not the pool manager address)
+        bytes[] memory poolData = new bytes[](1);
+        poolData[0] = abi.encode(poolKey);
+
+        // 4. Setup fees array
+        uint24[] memory fees = new uint24[](1);
+        fees[0] = uint24(POOL_FEE);
+
+        // 5. Initialize the pool in the mock (so sqrtPriceX96 != 0)
+        uint160 sqrtPriceX96 = 2967187660000000000000000000000;
+        uniPoolManager.initialize(
+            poolKey,
+            sqrtPriceX96,  // Or your desired initial price
+            1000e18
         );
 
-        assertEq(decoded.length, 1);
-        assertEq(decoded[0].protocol, MOCK_PROTOCOL);
-        assertEq(decoded[0].user, borrower);
-        assertEq(decoded[0].collateralAsset, weth);
-        assertEq(decoded[0].debtAsset, usdc);
-        assertEq(decoded[0].debtToCover, 100e18);
-    }
-
-    // ========== ADAPTER REGISTRY INTERACTION TESTS ==========
-
-    function test_GetAdapter_ReturnedCorrectly() public {
-        address adapterAddr = registry.getAdapter(MOCK_PROTOCOL);
-        assertEq(adapterAddr, address(mockAdapter));
-    }
-
-    function test_GetAdapter_UnregisteredProtocol_ReturnsZero() public {
-        bytes32 unregisteredProtocol = keccak256("UNREGISTERED");
-        address adapterAddr = registry.getAdapter(unregisteredProtocol);
-        assertEq(adapterAddr, address(0));
-    }
-
-    function test_MultipleAdaptersRegistered() public {
-        MockLiquidationAdapter adapter1 = new MockLiquidationAdapter(
-            keccak256("PROTOCOL_1"),
-            "Adapter 1"
-        );
-        MockLiquidationAdapter adapter2 = new MockLiquidationAdapter(
-            keccak256("PROTOCOL_2"),
-            "Adapter 2"
+        // 6. Register the swap path
+        swapAdapter.registerSwapPath(
+            address(collateralToken),
+            address(debtToken),
+            path,
+            poolData,
+            fees
         );
 
-        registry.registerAdapter(keccak256("PROTOCOL_1"), address(adapter1));
-        registry.registerAdapter(keccak256("PROTOCOL_2"), address(adapter2));
-
-        assertEq(
-            registry.getAdapter(keccak256("PROTOCOL_1")),
-            address(adapter1)
+        // 7. Get and verify the swap path
+        ISwapAdapter.SwapPath memory swapPath = swapAdapter.getSwapPath(
+            address(collateralToken),
+            address(debtToken)
         );
-        assertEq(
-            registry.getAdapter(keccak256("PROTOCOL_2")),
-            address(adapter2)
+
+        // Assertions
+        assertEq(swapPath.tokens.length, 2, "Should have 2 tokens");
+        assertEq(swapPath.poolData.length, 1, "Should have 1 pool");
+        assertEq(swapPath.fees.length, 1, "Should have 1 fee");
+        assertEq(swapPath.tokens[0], address(collateralToken), "First token should be tokenA");
+        assertEq(swapPath.tokens[1], address(debtToken), "Second token should be tokenB");
+        
+        assertTrue(swapAdapter.isPathSupported(swapPath), "Path should be supported");        
+    }
+
+    function _liquidateUserGetPayload(address _user) 
+    internal returns(ILiquidationAdapter.ExecutionPayload memory payload) {
+        debtManager.setAssetPrice(address(collateralToken), 1400e8);
+        debtManager.updateUserCollateral(_user, address(collateralToken), 1e18);
+
+        payload  = debtManagerAdapter.buildExecutionPayload(
+            _user, 
+            DEBT_TO_COVER, 
+            address(debtToken), 
+            address(collateralToken)
         );
     }
 
-    // ========== ADAPTER INTERFACE TESTS ==========
+    // ===========
 
-    function test_Adapter_ReturnsProtocolId() public {
-        assertEq(mockAdapter.protocol(), MOCK_PROTOCOL);
-    }
-
-    function test_Adapter_ReturnsName() public {
-        assertEq(mockAdapter.name(), "Mock Protocol Adapter");
-    }
-
-    function test_Adapter_GetRiskState() public {
-        ILiquidationAdapter.RiskState memory riskState = mockAdapter
-            .getRiskState(borrower);
-
-        assertTrue(riskState.liquidatable);
-        assertEq(riskState.riskMetric, 0.5e18);
-        assertEq(riskState.collateralUSD, 1000e18);
-        assertEq(riskState.debtUSD, 600e18);
-    }
-
-    function test_Adapter_GetLiquidationParams() public {
-        ILiquidationAdapter.LiquidationParams memory params = mockAdapter
-            .getLiquidationParams(borrower, weth, usdc);
-
-        assertEq(params.collateralAsset, weth);
-        assertEq(params.debtAsset, usdc);
-        assertEq(params.maxDebtToCover, 300e18); // 50% of debt
-        assertEq(params.liquidationBonus, 500); // 5%
-    }
-
-    function test_Adapter_BuildExecutionPayload() public {
-        ILiquidationAdapter.ExecutionPayload memory payload = mockAdapter
-            .buildExecutionPayload(borrower, 100e18, usdc, weth);
-
-        assertEq(payload.target, address(mockAdapter));
-        assertTrue(payload.callData.length > 0);
-    }
-
-    // ========== FLASH LOAN INTEGRATION TESTS ==========
-
-    function test_FlashLoan_CalledOnLiquidation() public {
-        // Verify flash loan router integration
-        assertEq(flashLoanRouter.flashLoanCount, 0);
-
-        // Simulate a flash loan call through the router
-        flashLoanRouter.flashLoan(usdc, weth, 100e18, address(0), "");
-
-        assertEq(flashLoanRouter.flashLoanCount, 1);
-    }
-
-    function test_FlashLoan_WithCorrectParameters() public {
-        address targetContract = makeAddr("targetContract");
-        bytes memory callData = abi.encodeWithSignature(
-            "liquidate(address,uint256)",
-            borrower,
-            100e18
+    function testSuccessfulLiquidationSingle() public {
+        ILiquidationAdapter.ExecutionPayload memory payload  = _liquidateUserGetPayload(user);
+        
+        Liiquidate.LiquidationReport[] memory jobs = 
+            new Liiquidate.LiquidationReport[](1);
+        
+        jobs[0] = Liiquidate.LiquidationReport({
+            protocol: debtManagerAdapter.protocol(),
+            user: user,
+            collateralAsset: address(collateralToken),
+            debtAsset: address(debtToken),
+            debtToCover: DEBT_TO_COVER
+        });
+        
+        bytes memory report = abi.encode(jobs);
+        
+        vm.expectEmit(true, true, true, false);
+        emit LiquidationExecuted(
+            jobs[0].protocol,
+            jobs[0].user,
+            address(debtManagerAdapter),
+            true
         );
 
-        flashLoanRouter.flashLoan(usdc, weth, 100e18, targetContract, callData);
-
-        assertEq(flashLoanRouter.calls[0].debtAsset, usdc);
-        assertEq(flashLoanRouter.calls[0].collateralAsset, weth);
-        assertEq(flashLoanRouter.calls[0].debtToCover, 100e18);
-        assertEq(flashLoanRouter.calls[0].targetContract, targetContract);
-    }
-
-    // ========== LIQUIDATION SCENARIO TESTS ==========
-
-    function test_Scenario_SingleBorrowerLiquidation() public {
-        // Setup borrower data
-        mockAdapter.setValues(1000e18, 600e18); // $1000 collateral, $600 debt
-        mockAdapter.setRiskMetric(0.8e18); // Liquidatable
-
-        // Get risk state
-        ILiquidationAdapter.RiskState memory risk = mockAdapter.getRiskState(
-            borrower
-        );
-        assertTrue(risk.liquidatable);
-
-        // Get liquidation params
-        ILiquidationAdapter.LiquidationParams memory params = mockAdapter
-            .getLiquidationParams(borrower, weth, usdc);
-        assertEq(params.maxDebtToCover, 300e18);
-
-        // Build execution payload
-        ILiquidationAdapter.ExecutionPayload memory payload = mockAdapter
-            .buildExecutionPayload(borrower, 300e18, usdc, weth);
-        assertTrue(payload.callData.length > 0);
-    }
-
-    function test_Scenario_MultipleBorrowersLiquidation() public {
-        address borrower1 = makeAddr("borrower1");
-        address borrower2 = makeAddr("borrower2");
-        address borrower3 = makeAddr("borrower3");
-
-        // Liquidate all three
-        ILiquidationAdapter.ExecutionPayload memory payload1 = mockAdapter
-            .buildExecutionPayload(borrower1, 100e18, usdc, weth);
-        ILiquidationAdapter.ExecutionPayload memory payload2 = mockAdapter
-            .buildExecutionPayload(borrower2, 150e18, usdc, weth);
-        ILiquidationAdapter.ExecutionPayload memory payload3 = mockAdapter
-            .buildExecutionPayload(borrower3, 200e18, usdc, weth);
-
-        assertEq(mockAdapter.getCallLogsLength(), 3);
-    }
-
-    // ========== ADAPTER BEHAVIOR TESTS ==========
-
-    function test_Adapter_HighRiskUser() public {
-        mockAdapter.setRiskMetric(0.3e18); // Very unsafe
-        mockAdapter.setValues(1000e18, 700e18);
-
-        ILiquidationAdapter.RiskState memory risk = mockAdapter.getRiskState(
-            borrower
-        );
-        assertTrue(risk.liquidatable);
-        assertLt(risk.riskMetric, 1e18);
-    }
-
-    function test_Adapter_LowRiskUser() public {
-        mockAdapter.setRiskMetric(1.5e18); // Safe
-        mockAdapter.setLiquidatable(false);
-
-        ILiquidationAdapter.RiskState memory risk = mockAdapter.getRiskState(
-            borrower
-        );
-        assertFalse(risk.liquidatable);
-    }
-
-    function test_Adapter_VaryingCollateralAndDebt() public {
-        uint256[] memory collaterals = new uint256[](3);
-        uint256[] memory debts = new uint256[](3);
-
-        collaterals[0] = 500e18;
-        collaterals[1] = 2000e18;
-        collaterals[2] = 100e18;
-
-        debts[0] = 400e18;
-        debts[1] = 500e18;
-        debts[2] = 150e18;
-
-        for (uint256 i = 0; i < 3; i++) {
-            mockAdapter.setValues(collaterals[i], debts[i]);
-
-            ILiquidationAdapter.RiskState memory risk = mockAdapter
-                .getRiskState(borrower);
-            assertEq(risk.collateralUSD, collaterals[i]);
-            assertEq(risk.debtUSD, debts[i]);
-        }
-    }
-
-    // ========== EDGE CASE TESTS ==========
-
-    function test_Adapter_ZeroDebt() public {
-        mockAdapter.setValues(1000e18, 0);
-
-        ILiquidationAdapter.LiquidationParams memory params = mockAdapter
-            .getLiquidationParams(borrower, weth, usdc);
-
-        // Max debt should be 0
-        assertEq(params.maxDebtToCover, 0);
-    }
-
-    function test_Adapter_ZeroCollateral() public {
-        mockAdapter.setValues(0, 100e18);
-
-        ILiquidationAdapter.RiskState memory risk = mockAdapter.getRiskState(
-            borrower
+        uint256 balanceBefore = IERC20(debtToken).balanceOf(address(flashRouter));
+        
+        bool success = chainLinkForwarder.sendReport(
+            address(liiquidate),
+            workflowId,
+            workflowName,
+            report
         );
 
-        assertEq(risk.collateralUSD, 0);
+        uint256 balanceAfter = IERC20(debtToken).balanceOf(address(flashRouter));
+        
+        assertTrue(success);
+        assertEq(balanceBefore, 0);
+        assertGt(balanceAfter, 0);
     }
 
-    function test_FlashLoan_LargeAmount() public {
-        uint256 largeAmount = type(uint128).max;
-
-        flashLoanRouter.flashLoan(usdc, weth, largeAmount, address(0), "");
-
-        assertEq(flashLoanRouter.calls[0].debtToCover, largeAmount);
-    }
-
-    function test_FlashLoan_SmallAmount() public {
-        uint256 smallAmount = 1;
-
-        flashLoanRouter.flashLoan(usdc, weth, smallAmount, address(0), "");
-
-        assertEq(flashLoanRouter.calls[0].debtToCover, smallAmount);
-    }
-
-    // ========== STATE CONSISTENCY TESTS ==========
-
-    function test_RegistryStateConsistency() public {
-        MockLiquidationAdapter adapter1 = new MockLiquidationAdapter(
-            keccak256("P1"),
-            "A1"
+    function testSuccessfulLiquidationMultipleAccounts() public {
+        ILiquidationAdapter.ExecutionPayload memory payload  = _liquidateUserGetPayload(user);
+        ILiquidationAdapter.ExecutionPayload memory payload2  = _liquidateUserGetPayload(user2);
+        
+        Liiquidate.LiquidationReport[] memory jobs = 
+            new Liiquidate.LiquidationReport[](2);
+        
+        jobs[0] = Liiquidate.LiquidationReport({
+            protocol: debtManagerAdapter.protocol(),
+            user: user,
+            collateralAsset: address(collateralToken),
+            debtAsset: address(debtToken),
+            debtToCover: DEBT_TO_COVER
+        });
+        jobs[1] = Liiquidate.LiquidationReport({
+            protocol: debtManagerAdapter.protocol(),
+            user: user2,
+            collateralAsset: address(collateralToken),
+            debtAsset: address(debtToken),
+            debtToCover: DEBT_TO_COVER
+        });
+        
+        bytes memory report = abi.encode(jobs);
+        
+        vm.expectEmit(true, true, true, false);
+        emit LiquidationExecuted(
+            jobs[0].protocol,
+            jobs[0].user,
+            address(debtManagerAdapter),
+            true
         );
-        MockLiquidationAdapter adapter2 = new MockLiquidationAdapter(
-            keccak256("P2"),
-            "A2"
+        
+        bool success = chainLinkForwarder.sendReport(
+            address(liiquidate),
+            workflowId,
+            workflowName,
+            report
+        );
+        
+        assertTrue(success);
+    }
+
+    function testSuccessfulLiquidationMultipleAdapters() public {
+        // Another adapter
+
+        // Create mock debtManager & debtManagerAdapter
+        debtManager2 = new MockDebtManager();
+        debtManagerAdapter2 = new MockDebtManagerAdapter(
+            address(debtManager2),
+            keccak256("DebtManager2")
         );
 
-        registry.registerAdapter(keccak256("P1"), address(adapter1));
-        assertEq(registry.getAdapter(keccak256("P1")), address(adapter1));
+        // 
+        debtToken.mint(address(debtManager2), 1_000_000e18);
+        collateralToken.mint(address(debtManager2), 1_000_000e18);
 
-        registry.registerAdapter(keccak256("P2"), address(adapter2));
-        assertEq(registry.getAdapter(keccak256("P1")), address(adapter1));
-        assertEq(registry.getAdapter(keccak256("P2")), address(adapter2));
+        // Configure collateral
+        // 10% liquidation bonus, 80% liquidation threshold
+        debtManager2.configureCollateral(
+            address(collateralToken),
+            0.1e18,  // 10% bonus for liquidators
+            0.8e18   // 80% LTV threshold
+        );
+        
+        // Configure debt asset
+        debtManager2.configureDebtAsset(
+            address(debtToken),
+            0.05e18,      // 5% annual rate
+            1000000e18    // Max borrow
+        );
+        
+        // Set initial prices
+        debtManager2.setAssetPrice(address(collateralToken), 2000e8);
+        debtManager2.setAssetPrice(address(debtToken), 1e8);
 
-        registry.removeAdapter(keccak256("P1"));
-        assertEq(registry.getAdapter(keccak256("P1")), address(0));
-        assertEq(registry.getAdapter(keccak256("P2")), address(adapter2));
-    }
+        // Setup user account
+        debtManager2.setupUserAccount(
+            user2,
+            address(collateralToken),
+            1e18,      // 1 WETH - collateral
+            address(debtToken),
+            1200e18    // 1200 USDC - debt
+        );
 
-    function test_MultipleFlashLoans_Sequential() public {
-        for (uint256 i = 0; i < 5; i++) {
-            flashLoanRouter.flashLoan(
-                usdc,
-                weth,
-                (i + 1) * 100e18,
-                address(0),
-                ""
-            );
-        }
+        // register
+        registry.registerAdapter(
+            debtManagerAdapter2.protocol(), 
+            address(debtManagerAdapter2)
+        );
 
-        assertEq(flashLoanRouter.flashLoanCount, 5);
-        assertEq(flashLoanRouter.calls[0].debtToCover, 100e18);
-        assertEq(flashLoanRouter.calls[4].debtToCover, 500e18);
-    }
+        // make liquidatable
+        debtManager2.setAssetPrice(address(collateralToken), 1400e8);
+        debtManager2.updateUserCollateral(user2, address(collateralToken), 1e18);
 
-    // ========== ADAPTER CALL TRACKING TESTS ==========
+        ILiquidationAdapter.ExecutionPayload memory _payload  = 
+        debtManagerAdapter2.buildExecutionPayload(
+            user2, 
+            DEBT_TO_COVER, 
+            address(debtToken), 
+            address(collateralToken)
+        );
 
-    function test_Adapter_TrackingCalls() public {
-        // First call
-        mockAdapter.getRiskState(borrower);
-        assertEq(mockAdapter.riskStateCallCount, 1);
+        // cyrrent adapter
 
-        // Second call
-        mockAdapter.getRiskState(borrower);
-        assertEq(mockAdapter.riskStateCallCount, 2);
-    }
-
-    function test_Adapter_TrackingExecutionPayloads() public {
-        mockAdapter.buildExecutionPayload(borrower, 100e18, usdc, weth);
-        mockAdapter.buildExecutionPayload(borrower, 200e18, usdc, weth);
-
-        assertEq(mockAdapter.executionPayloadCallCount, 2);
+        ILiquidationAdapter.ExecutionPayload memory payload  = _liquidateUserGetPayload(user);
+        
+        Liiquidate.LiquidationReport[] memory jobs = 
+            new Liiquidate.LiquidationReport[](2);
+        
+        jobs[0] = Liiquidate.LiquidationReport({
+            protocol: debtManagerAdapter.protocol(),
+            user: user,
+            collateralAsset: address(collateralToken),
+            debtAsset: address(debtToken),
+            debtToCover: DEBT_TO_COVER
+        });
+        jobs[1] = Liiquidate.LiquidationReport({
+            protocol: debtManagerAdapter2.protocol(),
+            user: user2,
+            collateralAsset: address(collateralToken),
+            debtAsset: address(debtToken),
+            debtToCover: DEBT_TO_COVER
+        });
+        
+        bytes memory report = abi.encode(jobs);
+        
+        vm.expectEmit(true, true, true, false);
+        emit LiquidationExecuted(
+            jobs[0].protocol,
+            jobs[0].user,
+            address(debtManagerAdapter),
+            true
+        );
+        
+        bool success = chainLinkForwarder.sendReport(
+            address(liiquidate),
+            workflowId,
+            workflowName,
+            report
+        );
+        
+        assertTrue(success);
     }
 }

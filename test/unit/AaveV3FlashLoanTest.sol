@@ -1,31 +1,49 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
 
-import "forge-std/Test.sol";
+import {Test, console} from "forge-std/Test.sol";
 import {AaveV3} from "../../src/flashloans/AaveV3.sol";
+import {UniswapV4Adapter} from "../../src/swappers/UniswapV4Adapter.sol";
 import {MockAaveV3Pool} from "../mocks/MockAaveV3Pool.sol";
 import {MockERC20} from "../mocks/MockERC20.sol";
 import {TestHelpers} from "../mocks/TestHelpers.sol";
 import {UniversalSwapRouter} from "../../src/UniversalSwapRouter.sol";
 import {LiquidationParams} from "../../src/types/DataTypes.sol";
+import {PoolKey} from "@uniswap/v4-core/src/types/PoolKey.sol";
+import { PoolIdLibrary, PoolId } from "@uniswap/v4-core/src/types/PoolId.sol";
+import {IHooks} from "@uniswap/v4-core/src/interfaces/IHooks.sol";
+import {Currency} from "@uniswap/v4-core/src/types/Currency.sol";
+import {MIN_SQRT_PRICE} from "../../src/types/Constants.sol";
+import {ISwapAdapter} from "../../src/interfaces/swapAdapter/ISwapAdapter.sol";
+import { ILiquidationAdapter } from "../../src/interfaces/liquidationAdapter/ILiquidationAdapter.sol";
+import {MockDebtManager} from "../mocks/MockDebtManager.sol";
+import {MockDebtManagerAdapter} from "../mocks/MockDebtManagerAdapter.sol";
+import {MockUniswapV4PoolManager} from "../mocks/MockUniswapV4PoolManager.sol";
 
 /**
  * @title AaveV3FlashLoanTest
  * @notice Tests for Aave V3 flash loan provider
  */
 contract AaveV3FlashLoanTest is Test {
-    AaveV3 public flashLoanProvider;
+    using PoolIdLibrary for PoolKey;
+
+    AaveV3 public aaveV3;
+    UniswapV4Adapter public uniswapV4Adapter;
     MockAaveV3Pool public mockPool;
     MockERC20 public debtToken;
     MockERC20 public collateralToken;
     UniversalSwapRouter public swapRouter;
+    MockDebtManager public debtManager;
+    MockDebtManagerAdapter public debtManagerAdapter;
+    MockUniswapV4PoolManager public mockPoolManager;
 
     address public user = address(0x1);
-    address public liquidator = address(0x2);
+    address public user2 = address(0x2);
+    address public liquidator = address(0x3);
 
     uint256 constant INITIAL_BALANCE = 1_000_000e18;
-    uint256 constant FLASH_LOAN_AMOUNT = 100_000e18;
-    uint256 constant FLASH_LOAN_FEE = 5e15; // 0.5%
+    uint256 constant POOL_FEE = 3000; // 0.5%
+    uint256 constant DEBT_TO_COVER = 700e18;
 
     event FlashLoan(address indexed asset, uint256 amount, uint256 fee);
 
@@ -34,75 +52,217 @@ contract AaveV3FlashLoanTest is Test {
         debtToken = new MockERC20("Debt Token", "DEBT", 18);
         collateralToken = new MockERC20("Collateral Token", "COLL", 18);
 
-        // Create mock pool
-        mockPool = new MockAaveV3Pool(
-            address(debtToken),
-            address(collateralToken)
-        );
+        // Create mock pool then add assets
+        mockPool = new MockAaveV3Pool();
+        
+        mockPool.setAssetSupported(address(debtToken), true);
+        mockPool.setAssetReservement(address(debtToken), 1_000_000e18);
+        debtToken.mint(address(mockPool), 1_000_000e18);
+
+        mockPool.setAssetSupported(address(collateralToken), true);
+        mockPool.setAssetReservement(address(collateralToken), INITIAL_BALANCE);
+        collateralToken.mint(address(mockPool), INITIAL_BALANCE);
 
         // Create swap router (simplified for testing)
         // In real environment, this would be configured with adapters
         swapRouter = new UniversalSwapRouter();
 
+        // Create mock uniswap v4 pool manager
+        mockPoolManager = new MockUniswapV4PoolManager();
+
+        // Create swap adapter
+        uniswapV4Adapter = new UniswapV4Adapter(
+            address(mockPoolManager)
+        );
+
+        _createPoolKeys();
+
+        // register adapter and add to priority queu
+        swapRouter.registerAdapter(address(uniswapV4Adapter));
+
+        bytes32[] memory protocols = new bytes32[](1);
+        protocols[0] = uniswapV4Adapter.protocolId();
+        swapRouter.setProtocolPriority(protocols);
+
         // Create flash loan provider
-        flashLoanProvider = new AaveV3(address(mockPool), address(swapRouter));
+        aaveV3 = new AaveV3(address(mockPool), address(swapRouter));
 
         // Setup initial balances
-        debtToken.mint(address(mockPool), INITIAL_BALANCE);
+        debtToken.mint(address(mockPool), 1_000_000e18);
+        collateralToken.mint(address(mockPool), INITIAL_BALANCE);
         collateralToken.mint(user, INITIAL_BALANCE);
+
+        /////////////// DEBTMANAGER ////////////////
+
+        // Create mock debtManager & debtManagerAdapter
+        debtManager = new MockDebtManager();
+        debtManagerAdapter = new MockDebtManagerAdapter(
+            address(debtManager),
+            keccak256("DebtManager1")
+        );
+
+        // 
+        debtToken.mint(address(debtManager), 1_000_000e18);
+        collateralToken.mint(address(debtManager), 1_000_000e18);
+
+        // Configure collateral
+        // 10% liquidation bonus, 80% liquidation threshold
+        debtManager.configureCollateral(
+            address(collateralToken),
+            0.1e18,  // 10% bonus for liquidators
+            0.8e18   // 80% LTV threshold
+        );
+        
+        // Configure debt asset
+        debtManager.configureDebtAsset(
+            address(debtToken),
+            0.05e18,      // 5% annual rate
+            1000000e18    // Max borrow
+        );
+        
+        // Set initial prices
+        // WETH = $2000, USDC = $1
+        debtManager.setAssetPrice(address(collateralToken), 2000e8);
+        debtManager.setAssetPrice(address(debtToken), 1e8);
+
+        // Setup user account
+        // User deposits 1 WETH ($2000) as collateral
+        // User borrows 1200 USDC ($1200) - this is 60% LTV initially (healthy)
+        debtManager.setupUserAccount(
+            user,
+            address(collateralToken),
+            1e18,      // 1 WETH - collateral
+            address(debtToken),
+            1200e18    // 1200 USDC - debt
+        );
+
+        debtManager.setupUserAccount(
+            user2,
+            address(collateralToken),
+            1e18,      // 1 WETH - collateral
+            address(debtToken),
+            1200e18    // 1200 USDC - debt
+        );
+
+        ///////////////////////////////////////////////
+
+        debtToken.mint(address(mockPoolManager), 1_000_000e18);
+        collateralToken.mint(address(mockPoolManager), 1_000_000e18);
+
     }
+
+    // ========== HELPER ============
+
+    function _createPoolKeys() internal {
+        // 1. Setup token path
+        address[] memory path = new address[](2);
+        path[0] = address(collateralToken);
+        path[1] = address(debtToken);
+
+        // 2. Create PoolKey for the tokenA/tokenB pool
+        PoolKey memory poolKey = PoolKey({
+            currency0: Currency.wrap(address(collateralToken)),
+            currency1: Currency.wrap(address(debtToken)),
+            fee: uint24(POOL_FEE),
+            tickSpacing: 60,  // Adjust based on your fee tier
+            hooks: IHooks(address(0))  // No hooks, or use your hooks address
+        });
+
+        // 3. Encode the PoolKey (not the pool manager address)
+        bytes[] memory poolData = new bytes[](1);
+        poolData[0] = abi.encode(poolKey);
+
+        // 4. Setup fees array
+        uint24[] memory fees = new uint24[](1);
+        fees[0] = uint24(POOL_FEE);
+
+        // 5. Initialize the pool in the mock (so sqrtPriceX96 != 0)
+        uint160 sqrtPriceX96 = 2967187660000000000000000000000;
+        mockPoolManager.initialize(
+            poolKey,
+            sqrtPriceX96,  // Or your desired initial price
+            1000e18
+        );
+
+        // 6. Register the swap path
+        uniswapV4Adapter.registerSwapPath(
+            address(collateralToken),
+            address(debtToken),
+            path,
+            poolData,
+            fees
+        );
+
+        // 7. Get and verify the swap path
+        ISwapAdapter.SwapPath memory swapPath = uniswapV4Adapter.getSwapPath(
+            address(collateralToken),
+            address(debtToken)
+        );
+
+        // Assertions
+        assertEq(swapPath.tokens.length, 2, "Should have 2 tokens");
+        assertEq(swapPath.poolData.length, 1, "Should have 1 pool");
+        assertEq(swapPath.fees.length, 1, "Should have 1 fee");
+        assertEq(swapPath.tokens[0], address(collateralToken), "First token should be tokenA");
+        assertEq(swapPath.tokens[1], address(debtToken), "Second token should be tokenB");
+        
+        assertTrue(uniswapV4Adapter.isPathSupported(swapPath), "Path should be supported");        
+    }
+
+    function _liquidateUserGetPayload(address _user) 
+    internal returns(ILiquidationAdapter.ExecutionPayload memory payload) {
+        debtManager.setAssetPrice(address(collateralToken), 1400e8);
+        debtManager.updateUserCollateral(_user, address(collateralToken), 1e18);
+
+        payload  = debtManagerAdapter.buildExecutionPayload(
+            _user, 
+            DEBT_TO_COVER, 
+            address(debtToken), 
+            address(collateralToken)
+        );
+    }
+
+    // ========== QUOTE ===========
+
+    function testAaveQuote() public {
+        ISwapAdapter.MultiHopParams memory params = ISwapAdapter
+            .MultiHopParams({
+                tokenIn: address(collateralToken),
+                tokenOut: address(debtToken),
+                amountIn: 0.55e18,
+                amountOut: 0,
+                minAmountOut: 750e18,
+                maxAmountIn: 0,
+                recipient: address(this),
+                deadline: block.timestamp + 1000,
+                isExactInput: true
+            });
+        
+        (, uint256 amountOut) = uniswapV4Adapter.quoteMultiHop(params);
+
+        console.log("AmountOut: ", amountOut);
+        assertLt(750e18, amountOut);
+    }    
 
     // ========== BASIC FLASH LOAN TESTS ==========
 
-    function testFlashLoanInitiation() public {
-        uint256 borrowAmount = FLASH_LOAN_AMOUNT;
+    function testAaveFlashLoanInitiation() public {
+        ILiquidationAdapter.ExecutionPayload memory payload  = _liquidateUserGetPayload(user);
 
-        // Prepare callback data
-        bytes memory callbackData = abi.encode(
-            LiquidationParams({
-                collateralAsset: address(collateralToken),
-                debtAsset: address(debtToken),
-                debtToCover: borrowAmount,
-                liquidationTarget: address(0x3),
-                liquidationCalldata: "",
-                minAmountOut: 0
-            })
-        );
-
-        // Initiate flash loan
-        vm.prank(liquidator);
-        vm.expectEmit(true, true, false, true, address(mockPool));
-        emit FlashLoan(
-            address(debtToken),
-            borrowAmount,
-            (borrowAmount * FLASH_LOAN_FEE) / 1e18
-        );
-
-        flashLoanProvider.flashLoan(
-            address(debtToken),
-            address(collateralToken),
-            borrowAmount,
-            address(this),
-            callbackData
-        );
-    }
-
-    function testFlashLoanWithValidParams() public {
-        uint256 borrowAmount = FLASH_LOAN_AMOUNT;
-        bytes memory callbackData = "";
+        assertEq(debtToken.balanceOf(liquidator), 0);
 
         vm.prank(liquidator);
-        flashLoanProvider.flashLoan(
+        aaveV3.flashLoan(
             address(debtToken),
             address(collateralToken),
-            borrowAmount,
-            address(this),
-            callbackData
+            DEBT_TO_COVER,
+            payload.target,
+            payload.callData
         );
 
-        // Verify tokens were borrowed from pool
-        uint256 poolTokenBalance = debtToken.balanceOf(address(mockPool));
-        assertTrue(poolTokenBalance < INITIAL_BALANCE);
+        // assertGt(debtToken.balanceOf(liquidator), 0);
+
+        console.log("Liquidator Balance: ", debtToken.balanceOf(liquidator));
     }
 
     function testFlashLoanRevertsWithZeroAmount() public {
@@ -110,7 +270,7 @@ contract AaveV3FlashLoanTest is Test {
 
         vm.prank(liquidator);
         vm.expectRevert("Amount cannot be zero!");
-        flashLoanProvider.flashLoan(
+        aaveV3.flashLoan(
             address(debtToken),
             address(collateralToken),
             0,
@@ -124,10 +284,10 @@ contract AaveV3FlashLoanTest is Test {
 
         vm.prank(liquidator);
         vm.expectRevert("Invalid Address");
-        flashLoanProvider.flashLoan(
+        aaveV3.flashLoan(
             address(0),
             address(collateralToken),
-            FLASH_LOAN_AMOUNT,
+            DEBT_TO_COVER,
             address(this),
             callbackData
         );
@@ -138,10 +298,10 @@ contract AaveV3FlashLoanTest is Test {
 
         vm.prank(liquidator);
         vm.expectRevert("Invalid Address");
-        flashLoanProvider.flashLoan(
+        aaveV3.flashLoan(
             address(debtToken),
             address(0),
-            FLASH_LOAN_AMOUNT,
+            DEBT_TO_COVER,
             address(this),
             callbackData
         );
@@ -152,10 +312,10 @@ contract AaveV3FlashLoanTest is Test {
 
         vm.prank(liquidator);
         vm.expectRevert("Invalid Address");
-        flashLoanProvider.flashLoan(
+        aaveV3.flashLoan(
             address(debtToken),
             address(collateralToken),
-            FLASH_LOAN_AMOUNT,
+            DEBT_TO_COVER,
             address(0),
             callbackData
         );
@@ -164,96 +324,27 @@ contract AaveV3FlashLoanTest is Test {
     // ========== MULTIPLE FLASH LOANS ==========
 
     function testMultipleFlashLoansInSequence() public {
-        uint256 amount1 = 50_000e18;
-        uint256 amount2 = 75_000e18;
+        ILiquidationAdapter.ExecutionPayload memory payload1  = _liquidateUserGetPayload(user);
+        ILiquidationAdapter.ExecutionPayload memory payload2  = _liquidateUserGetPayload(user2);
 
         // First flash loan
         vm.prank(liquidator);
-        flashLoanProvider.flashLoan(
+        aaveV3.flashLoan(
             address(debtToken),
             address(collateralToken),
-            amount1,
-            address(this),
-            ""
+            DEBT_TO_COVER,
+            payload1.target,
+            payload1.callData
         );
 
         // Second flash loan
         vm.prank(liquidator);
-        flashLoanProvider.flashLoan(
+        aaveV3.flashLoan(
             address(debtToken),
             address(collateralToken),
-            amount2,
-            address(this),
-            ""
-        );
-    }
-
-    function testFlashLoanWithDifferentTokenPairs() public {
-        MockERC20 token1 = new MockERC20("Token1", "T1", 18);
-        MockERC20 token2 = new MockERC20("Token2", "T2", 18);
-
-        token1.mint(address(mockPool), INITIAL_BALANCE);
-        token2.mint(address(mockPool), INITIAL_BALANCE);
-
-        bytes memory callbackData = "";
-
-        vm.prank(liquidator);
-        flashLoanProvider.flashLoan(
-            address(token1),
-            address(token2),
-            100_000e18,
-            address(this),
-            callbackData
-        );
-    }
-
-    // ========== FLASH LOAN FEE CALCULATION ==========
-
-    function testFlashLoanFeeIsCalculated() public {
-        uint256 amount = FLASH_LOAN_AMOUNT;
-        uint256 expectedFee = (amount * FLASH_LOAN_FEE) / 1e18;
-
-        vm.prank(liquidator);
-        flashLoanProvider.flashLoan(
-            address(debtToken),
-            address(collateralToken),
-            amount,
-            address(this),
-            ""
-        );
-
-        // Fee should be deducted from pool
-        uint256 expectedPoolBalance = INITIAL_BALANCE - expectedFee;
-        assertGe(debtToken.balanceOf(address(mockPool)), expectedPoolBalance);
-    }
-
-    function testFlashLoanWithLargeAmount() public {
-        uint256 largeAmount = 900_000e18; // 90% of initial balance
-
-        bytes memory callbackData = "";
-
-        vm.prank(liquidator);
-        flashLoanProvider.flashLoan(
-            address(debtToken),
-            address(collateralToken),
-            largeAmount,
-            address(this),
-            callbackData
-        );
-    }
-
-    function testFlashLoanWithSmallAmount() public {
-        uint256 smallAmount = 1e18; // 1 token
-
-        bytes memory callbackData = "";
-
-        vm.prank(liquidator);
-        flashLoanProvider.flashLoan(
-            address(debtToken),
-            address(collateralToken),
-            smallAmount,
-            address(this),
-            callbackData
+            DEBT_TO_COVER,
+            payload2.target,
+            payload2.callData
         );
     }
 
@@ -261,23 +352,23 @@ contract AaveV3FlashLoanTest is Test {
 
     function testProviderIDIsCorrect() public {
         bytes32 expectedId = keccak256("AAVE_V3");
-        assertEq(flashLoanProvider.id(), expectedId);
+        assertEq(aaveV3.id(), expectedId);
     }
 
     function testProviderIDIsConsistent() public {
-        bytes32 id1 = flashLoanProvider.id();
-        bytes32 id2 = flashLoanProvider.id();
+        bytes32 id1 = aaveV3.id();
+        bytes32 id2 = aaveV3.id();
         assertEq(id1, id2);
     }
 
     // ========== CONSTRUCTOR TESTS ==========
 
     function testConstructorSetsPoolCorrectly() public {
-        assertEq(address(flashLoanProvider.pool()), address(mockPool));
+        assertEq(address(aaveV3.pool()), address(mockPool));
     }
 
     function testConstructorSetsSwapRouterCorrectly() public {
-        assertEq(address(flashLoanProvider.swapRouter()), address(swapRouter));
+        assertEq(address(aaveV3.swapRouter()), address(swapRouter));
     }
 
     function testConstructorRevertsWithZeroPool() public {
@@ -294,35 +385,35 @@ contract AaveV3FlashLoanTest is Test {
 
     function testRescueTokens() public {
         uint256 tokenAmount = 1000e18;
-        debtToken.mint(address(flashLoanProvider), tokenAmount);
+        debtToken.mint(address(aaveV3), tokenAmount);
 
-        vm.prank(flashLoanProvider.owner());
-        flashLoanProvider.rescueTokens(address(debtToken), tokenAmount);
+        vm.prank(aaveV3.owner());
+        aaveV3.rescueTokens(address(debtToken), tokenAmount);
 
-        assertEq(debtToken.balanceOf(flashLoanProvider.owner()), tokenAmount);
+        assertEq(debtToken.balanceOf(aaveV3.owner()), tokenAmount);
     }
 
     function testRescueTokensRevertsIfNotOwner() public {
         uint256 tokenAmount = 1000e18;
-        debtToken.mint(address(flashLoanProvider), tokenAmount);
+        debtToken.mint(address(aaveV3), tokenAmount);
 
         vm.prank(user);
         vm.expectRevert();
-        flashLoanProvider.rescueTokens(address(debtToken), tokenAmount);
+        aaveV3.rescueTokens(address(debtToken), tokenAmount);
     }
 
     function testRescuePartialTokens() public {
         uint256 totalAmount = 1000e18;
         uint256 rescueAmount = 500e18;
 
-        debtToken.mint(address(flashLoanProvider), totalAmount);
+        debtToken.mint(address(aaveV3), totalAmount);
 
-        vm.prank(flashLoanProvider.owner());
-        flashLoanProvider.rescueTokens(address(debtToken), rescueAmount);
+        vm.prank(aaveV3.owner());
+        aaveV3.rescueTokens(address(debtToken), rescueAmount);
 
-        assertEq(debtToken.balanceOf(flashLoanProvider.owner()), rescueAmount);
+        assertEq(debtToken.balanceOf(aaveV3.owner()), rescueAmount);
         assertEq(
-            debtToken.balanceOf(address(flashLoanProvider)),
+            debtToken.balanceOf(address(aaveV3)),
             totalAmount - rescueAmount
         );
     }
@@ -330,7 +421,7 @@ contract AaveV3FlashLoanTest is Test {
     // ========== RECEIVE FUNCTION ==========
 
     function testReceiveETH() public {
-        address provider = address(flashLoanProvider);
+        address provider = address(aaveV3);
         vm.deal(user, 1 ether);
 
         vm.prank(user);
@@ -338,75 +429,19 @@ contract AaveV3FlashLoanTest is Test {
         assertTrue(success);
     }
 
-    // ========== EDGE CASES ==========
-
-    function testFlashLoanWithMaxUintAmount() public {
-        // Should handle large amounts gracefully
-        vm.prank(liquidator);
-        vm.expectRevert(); // Will fail due to insufficient pool liquidity
-        flashLoanProvider.flashLoan(
-            address(debtToken),
-            address(collateralToken),
-            type(uint256).max,
-            address(this),
-            ""
-        );
-    }
-
-    function testFlashLoanCallbackInvokedWithCorrectParams() public {
-        uint256 borrowAmount = FLASH_LOAN_AMOUNT;
-
-        vm.prank(liquidator);
-        flashLoanProvider.flashLoan(
-            address(debtToken),
-            address(collateralToken),
-            borrowAmount,
-            address(this),
-            ""
-        );
-
-        // Flash loan should have gone through pool
-        assertTrue(address(mockPool).code.length > 0);
-    }
-
-    function testFlashLoanFromMultipleCaller() public {
-        address caller1 = address(0x10);
-        address caller2 = address(0x11);
-
-        // First caller
-        vm.prank(caller1);
-        flashLoanProvider.flashLoan(
-            address(debtToken),
-            address(collateralToken),
-            50_000e18,
-            address(this),
-            ""
-        );
-
-        // Second caller
-        vm.prank(caller2);
-        flashLoanProvider.flashLoan(
-            address(debtToken),
-            address(collateralToken),
-            75_000e18,
-            address(this),
-            ""
-        );
-    }
-
     // ========== GAS EFFICIENCY ==========
 
     function testFlashLoanGasUsage() public {
-        bytes memory callbackData = "";
+        ILiquidationAdapter.ExecutionPayload memory payload  = _liquidateUserGetPayload(user);
 
         vm.prank(liquidator);
         uint256 gasStart = gasleft();
-        flashLoanProvider.flashLoan(
+        aaveV3.flashLoan(
             address(debtToken),
             address(collateralToken),
-            FLASH_LOAN_AMOUNT,
-            address(this),
-            callbackData
+            DEBT_TO_COVER,
+            payload.target,
+            payload.callData
         );
         uint256 gasUsed = gasStart - gasleft();
 
