@@ -21,30 +21,27 @@ contract RegisterAdapters is Script {
 
     // SEPOLIA
 
-    address[] memory sepoliaAdapters = new address[](1);
-    sepoliaAdapters[0] = address(0);
+    address[] private sepoliaAdapters = [address(0), address(1)];
 
-    Adapter memory forSepolia = Adapter({
+    Adapter private forSepolia = Adapter({
         adapterRegistryAddress: address(1),
         adapters: sepoliaAdapters
     });
 
     // BASE SEPOLIA
 
-    address[] memory baseSepoliaAdapters = new address[](1);
-    baseSepoliaAdapters[0] = address(0);
+    address[] private baseSepoliaAdapters = [address(0), address(1)];
 
-    Adapter memory forBaseSepolia = Adapter({
+    Adapter private forBaseSepolia = Adapter({
         adapterRegistryAddress: address(1),
         adapters: baseSepoliaAdapters
     });
 
     // ANVIL
 
-    address[] memory anvilAdapters = new address[](1);
-    anvilAdapters[0] = address(0);
+    address[] private anvilAdapters = [address(0), address(1)];
 
-    Adapter memory forAnvil = Adapter({
+    Adapter private forAnvil = Adapter({
         adapterRegistryAddress: address(1),
         adapters: anvilAdapters
     });
@@ -73,8 +70,8 @@ contract RegisterAdapters is Script {
         adapterRegistry = AdapterRegistry(adapterToUse.adapterRegistryAddress);
 
         // register adapter
-        uint8 adaptersLength = adapterToUse.adapters.length;
-        for(uint8 i = 0; i < adaptersLength; i++) {
+        uint256 adaptersLength = adapterToUse.adapters.length;
+        for(uint256 i = 0; i < adaptersLength; i++) {
             // create adapter instance
             liquidationAdapter = ILiquidationAdapter(adapterToUse.adapters[i]);
             // register
