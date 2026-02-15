@@ -5,7 +5,7 @@ interface IFlashLoan {
     /// @notice ...
     function flashLoan(
         address debtAsset,
-        address collateralAsset
+        address collateralAsset,
         uint256 debtToCover,
         address targetContract,
         bytes calldata data
