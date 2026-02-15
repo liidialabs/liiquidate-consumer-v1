@@ -10,32 +10,41 @@ import {
     IUnlockCallback
 } from "@uniswap/v4-core/src/interfaces/callback/IUnlockCallback.sol";
 import {IPoolManager} from "@uniswap/v4-core/src/interfaces/IPoolManager.sol";
-import {PoolKey} from "@uniswap/v4-core/src/types/PoolKey.sol";
-import {BalanceDelta} from "@uniswap/v4-core/src/types/BalanceDelta.sol";
 import {Currency} from "@uniswap/v4-core/src/types/Currency.sol";
 import {UniversalSwapRouter} from "../UniversalSwapRouter.sol";
 import {IFlashLoan} from "../interfaces/flashloans/IFlashLoan.sol";
-import {ISwapAdapter} from "../interfaces/swapAdapter/ISwapAdapter.sol";
 import {LiquidationParams, LiquidationExecuted} from "../types/DataTypes.sol";
 
 contract UniswapV4 is Ownable, IFlashLoan, IUnlockCallback {
     using SafeERC20 for IERC20;
 
     IPoolManager public immutable poolManager;
+    UniversalSwapRouter public immutable swapRouter;
 
     bytes32 public constant PROVIDER_ID = keccak256("UNISWAP_V4");
 
-    constructor(address _poolManager, address _swapRouter) Ownable(msg.sender) {
+    mapping(address => uint256) private accumProfit;
+    mapping(address => bool) private isRecorded;
+
+    address[] debtCovered;
+    uint256 public callCount;
+
+    constructor(
+        address _poolManager, 
+        address _swapRouter
+    ) Ownable(msg.sender) {
         require(
-            _pool != address(0) && _swapRouter != address(0),
+            _poolManager != address(0) && _swapRouter != address(0),
             "invalid address"
         );
         poolManager = IPoolManager(_poolManager);
         swapRouter = UniversalSwapRouter(_swapRouter);
+
+        callCount = 0;
     }
 
     modifier onlyPoolManager() {
-        require(msg.sender == address(poolManager), "not pool manager");
+        _onlyPoolManager();
         _;
     }
 
@@ -54,6 +63,8 @@ contract UniswapV4 is Ownable, IFlashLoan, IUnlockCallback {
             "Invalid Address"
         );
         require(debtToCover != 0, "Amount cannot be zero!");
+
+        callCount++;
 
         // build LiquidationParams
         LiquidationParams memory liquidationParams = LiquidationParams({
@@ -78,7 +89,7 @@ contract UniswapV4 is Ownable, IFlashLoan, IUnlockCallback {
         //////////// BORROW //////////////
 
         poolManager.take({
-            currency: liquidationParams.debtAsset,
+            currency: Currency.wrap(liquidationParams.debtAsset),
             to: address(this),
             amount: liquidationParams.debtToCover
         });
@@ -89,7 +100,7 @@ contract UniswapV4 is Ownable, IFlashLoan, IUnlockCallback {
         address targetContract = liquidationParams.liquidationTarget;
 
         // Approve the borrowed asset to the liquidation target (adapter/protocol)
-        IERC20(asset).approve(targetContract, amount);
+        IERC20(liquidationParams.debtAsset).approve(targetContract, liquidationParams.debtToCover);
 
         // Execute liquidation via low-level call to support arbitrary protocols/adapters
         (bool success, ) = targetContract.call(
@@ -104,18 +115,16 @@ contract UniswapV4 is Ownable, IFlashLoan, IUnlockCallback {
 
         ///////////////// SWAP CALL //////////////////
 
-        // Approve the swap router to spend collateral
-        IERC20(collateralAsset).approve(
-            address(swapRouter),
-            collateralReceived
-        );
+        // Approve the swap adpaters to spend collateral
+        _approveSwapAdapters(liquidationParams.collateralAsset);
 
         // Execute the swap
         (, uint256 swappedOut, ) = swapRouter.swapMultiHop(
             liquidationParams.collateralAsset,
             liquidationParams.debtAsset,
             collateralReceived,
-            liquidationParams.debtToCover
+            liquidationParams.debtToCover,
+            PROVIDER_ID
         );
 
         // Verify the swap was successful
@@ -124,11 +133,27 @@ contract UniswapV4 is Ownable, IFlashLoan, IUnlockCallback {
             "Insufficient swap output"
         );
 
+        //////////// REPAY //////////////
+
+        poolManager.sync(Currency.wrap(liquidationParams.debtAsset));
+
+        if (liquidationParams.debtAsset == address(0)) {
+            poolManager.settle{value: liquidationParams.debtToCover}();
+        } else {
+            IERC20(liquidationParams.debtAsset).safeTransfer(address(poolManager), liquidationParams.debtToCover);
+            poolManager.settle();
+        }
+
+        //////// PROFIT ////////
+
         // Calculate profit
-        uint256 debtAssetBalance = IERC20(liquidationParams.debtAsset)
+        uint256 profit = IERC20(liquidationParams.debtAsset)
             .balanceOf(address(this));
-        uint256 profit = debtAssetBalance - liquidationParams.debtToCover;
         require(profit > 0, "not profitable");
+
+        // record
+        if(!isRecorded[liquidationParams.debtAsset]) debtCovered.push(liquidationParams.debtAsset);
+        accumProfit[liquidationParams.debtAsset] += profit;
 
         // Send profit to caller
         IERC20(liquidationParams.debtAsset).safeTransfer(caller, profit);
@@ -141,16 +166,6 @@ contract UniswapV4 is Ownable, IFlashLoan, IUnlockCallback {
                 caller,
                 remainingCollateral
             );
-        }
-
-        //////////// REPAY //////////////
-        poolManager.sync(currency);
-
-        if (currency == address(0)) {
-            poolManager.settle{value: amount}();
-        } else {
-            IERC20(currency).safeTransfer(address(poolManager), amount);
-            poolManager.settle();
         }
 
         /// EVENT ///
@@ -171,7 +186,7 @@ contract UniswapV4 is Ownable, IFlashLoan, IUnlockCallback {
         address token, 
         uint256 amount
     ) external onlyOwner {
-        IERC20(token).transfer(owner(), amount);
+        IERC20(token).safeTransfer(owner(), amount);
     }
 
     function id() external pure override returns (bytes32) {
@@ -179,5 +194,37 @@ contract UniswapV4 is Ownable, IFlashLoan, IUnlockCallback {
     }
 
     receive() external payable {}
+
+    ///// INTERNAL /////
+
+    function _onlyPoolManager() internal {
+        require(msg.sender == address(poolManager), "not pool manager");
+    }
+
+    function _approveSwapAdapters(address token) internal {
+        uint256 max = type(uint256).max;
+        address[] memory swapAdapters = swapRouter.getSwapAdapters();
+
+        for(uint8 i = 0; i < swapAdapters.length; i++) {
+            address adapter = swapAdapters[i];
+            if (IERC20(token).allowance(address(this), adapter) < max) {
+                IERC20(token).approve(adapter, max);
+            }
+        }
+    }
+
+    ////// VIEW //////
+
+    function getCallCount() external view returns(uint256) {
+        return callCount;
+    }
+
+    function getDebtsCovered() external view returns(address[] memory list) {
+        list = debtCovered;
+    }
+
+    function getProfitPerAsset(address asset) external view returns(uint256 amount) {
+        amount = accumProfit[asset];
+    }
     
 }
