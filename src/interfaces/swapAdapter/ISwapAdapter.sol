@@ -53,7 +53,10 @@ interface ISwapAdapter {
     /// @param params The swap parameters
     /// @return amountIn Actual input amount used
     /// @return amountOut Actual output amount received
-    function swapMultiHop(MultiHopParams calldata params) 
+    function swapMultiHop(
+        MultiHopParams calldata params,
+        bytes32 loanProviderId
+    ) 
         external 
         returns (uint256 amountIn, uint256 amountOut);
     
@@ -68,7 +71,7 @@ interface ISwapAdapter {
     
     /// @notice Get the protocol identifier
     /// @return Protocol name (e.g., "UniswapV3", "Balancer")
-    function protocolId() external pure returns (bytes32);
+    function protocolId() external view returns (bytes32);
     
     /// @notice Check if a path is supported by this adapter
     /// @param path The swap path to check
