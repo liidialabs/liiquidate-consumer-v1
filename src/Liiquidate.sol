@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
 
-import { ReceiverTemplate } from "./interfaces/receiver/ReceiverTemplate.sol";
-import { ILiquidationAdapter } from "./interfaces/adapter/ILiquidationAdapter.sol";
+import { ReceiverTemplate } from "./interfaces/chainlinkReceiver/ReceiverTemplate.sol";
+import { ILiquidationAdapter } from "./interfaces/liquidationAdapter/ILiquidationAdapter.sol";
 import { AdapterRegistry } from "./AdapterRegistry.sol";
 import { FlashLoanRouter } from "./FlashLoanRouter.sol";
 
@@ -28,7 +28,11 @@ contract Liiquidate is ReceiverTemplate {
         bool success
     );
 
-    constructor(address _registry, address _flashLoan) {
+    constructor(
+        address _registry, 
+        address _flashLoan, 
+        address _forwarderAddress
+    ) ReceiverTemplate(_forwarderAddress) {
         registry = AdapterRegistry(_registry);
         flashLoan = FlashLoanRouter(_flashLoan);
     }
@@ -72,7 +76,7 @@ contract Liiquidate is ReceiverTemplate {
             );
 
         // Parse to flashloan to 1. Take flashLoan, 2. Liquidate, 3. Swap, 4. Repay
-        flashLoan.flashLoan(
+        bool resp = flashLoan.flashLoan(
             job.debtAsset, 
             job.collateralAsset,
             job.debtToCover, 
@@ -85,7 +89,7 @@ contract Liiquidate is ReceiverTemplate {
             job.protocol,
             job.user,
             adapterAddr,
-            success
+            resp
         );
     }
 }
