@@ -13,9 +13,11 @@ struct LiquidationParams {
 }
 
 event LiquidationExecuted(
+    string flashLoanProvider,
+    address indexed targetContract,
     address indexed user,
-    address indexed collateralAsset,
     address indexed debtAsset,
+    address collateralAsset,
     uint256 debtCovered,
     uint256 collateralReceived,
     uint256 profit
