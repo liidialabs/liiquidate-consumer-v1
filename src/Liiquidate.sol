@@ -21,6 +21,8 @@ contract Liiquidate is ReceiverTemplate {
     AdapterRegistry public immutable registry;
     FlashLoanRouter public immutable flashLoan;
 
+    /// EVENTS ///
+
     event LiquidationExecuted(
         bytes32 indexed protocol,
         address indexed user,
@@ -28,11 +30,24 @@ contract Liiquidate is ReceiverTemplate {
         bool success
     );
 
+    /// ERRORS ///
+
+    error InvalidAddress();
+    error InvalidReport();
+    error InvalidProtocol();
+    error InvalidAmount();
+
     constructor(
         address _registry, 
         address _flashLoan, 
         address _forwarderAddress
     ) ReceiverTemplate(_forwarderAddress) {
+        if(
+            _registry == address(0) ||
+            _flashLoan == address(0) ||
+            _forwarderAddress == address(0)
+        ) revert InvalidAddress();
+
         registry = AdapterRegistry(_registry);
         flashLoan = FlashLoanRouter(_flashLoan);
     }
@@ -40,6 +55,8 @@ contract Liiquidate is ReceiverTemplate {
     function _processReport(
         bytes calldata report
     ) internal override {
+        if (report.length == 0) revert InvalidReport();
+
         LiquidationReport[] memory jobs =
             abi.decode(report, (LiquidationReport[]));
 
@@ -63,6 +80,14 @@ contract Liiquidate is ReceiverTemplate {
             );
             return;
         }
+        // Check job data
+        if(
+            job.user == address(0) ||
+            job.collateralAsset == address(0) ||
+            job.debtAsset == address(0)
+        ) revert InvalidAddress();
+        if(job.protocol == bytes32(0)) revert InvalidProtocol();
+        if(job.debtToCover == 0) revert InvalidAmount();
 
         // Instantiate adapter
         ILiquidationAdapter adapter = ILiquidationAdapter(adapterAddr);

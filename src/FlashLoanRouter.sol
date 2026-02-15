@@ -14,6 +14,8 @@ contract FlashLoanRouter is Ownable {
     address[] private debts;
     uint256 private callCount;
 
+    /// EVENTS ///
+
     event ProviderAdded(bytes32 id, address provider);
     event ProviderRemoved(bytes32 id);
     event ProviderPrioritySet(bytes32[] providers);
@@ -21,19 +23,28 @@ contract FlashLoanRouter is Ownable {
     event FlashLoanExecuted(bytes32 provider);
     event FlashLoanFailed(bytes32 provider);
 
+    /// ERRORS ///
+
+    error InvalidAddress();
+    error InvalidProtocol();
+    error EmptyProviderArray();
+    error InvalidAmount();
+    error InvalidData();
+    error InvalidReport();
+
     constructor() Ownable(msg.sender) {
         callCount = 0;
     }
 
     function addProvider(address provider) external onlyOwner {
-        require(provider != address(0), "Invalid Address");
+        if(provider == address(0)) revert InvalidAddress();
         bytes32 id = IFlashLoan(provider).id();
         providers[id] = provider;
         emit ProviderAdded(id, provider);
     }
 
     function removeProvider(bytes32 id) external onlyOwner {
-        require(id != bytes32(0), "Invalid Address");
+        if(id == bytes32(0)) revert InvalidProtocol();
         delete providers[id];
         emit ProviderRemoved(id);
     }
@@ -42,10 +53,8 @@ contract FlashLoanRouter is Ownable {
     function setProviderPriority(
         bytes32[] calldata providerIds
     ) external onlyOwner {
-        require(providerIds.length > 0, "empty list"); 
-
+        if(providerIds.length == 0) revert EmptyProviderArray();
         providerPriority = providerIds;
-
         emit ProviderPrioritySet(providerIds);
     }
 
@@ -56,7 +65,14 @@ contract FlashLoanRouter is Ownable {
         address targetContract,
         bytes calldata data
     ) external returns(bool) {
-        require(providerPriority.length > 0, "Provider Priority Not Set");
+        if(providerPriority.length == 0) revert EmptyProviderArray();
+        if(
+            debtAsset == address(0) ||
+            targetContract == address(0) ||
+            collateralAsset == address(0)
+        ) revert InvalidAddress();
+        if(debtToCover == 0) revert InvalidAmount();
+        if (data.length == 0) revert InvalidReport();
 
         callCount++;
 
@@ -82,7 +98,7 @@ contract FlashLoanRouter is Ownable {
             }
         }
 
-        revert("all flash loan providers failed");
+        revert("All flash loan providers failed!");
     }
 
     ///////// VIEW //////////

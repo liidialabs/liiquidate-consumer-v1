@@ -29,7 +29,7 @@ contract UniversalSwapRouter is Ownable {
     }
 
     // Default Protocol ID as UniswapV4
-    bytes32 public constant DEFAULT_PROTOCOL_ID = keccak256("UNI_V4");
+    bytes32 public constant DEFAULT_PROTOCOL_ID = keccak256("UNISWAP_V4");
     uint16 private constant BASE_BPS = 1e4;
 
     /// @notice Registered protocol adapters
@@ -67,6 +67,14 @@ contract UniversalSwapRouter is Ownable {
     event DefaultRouteFailed(bytes32 protocol);
     event ProtocolPrioritySet(bytes32[] providers);
 
+    /// @notice Errors
+
+    error InvalidAddress();
+    error InvalidProtocol();
+    error EmptyProtocolList();
+    error CannotBeZero();
+    error InvalidAmount();
+
     constructor() Ownable(msg.sender) {
         // Default fallback configuration
         fallbackConfig = FallbackConfig({
@@ -79,7 +87,7 @@ contract UniversalSwapRouter is Ownable {
     }
 
     function registerAdapter(address adapter) external onlyOwner {
-        require(adapter != address(0), "Invalid adapter");
+        if(adapter == address(0)) revert InvalidAddress();
         bytes32 protocol = ISwapAdapter(adapter).protocolId();
         adapters[protocol] = adapter;
         swapAdapters.push(adapter);
@@ -87,6 +95,7 @@ contract UniversalSwapRouter is Ownable {
     }
 
     function removeAdapter(bytes32 protocol) external onlyOwner {
+        if(protocol == bytes32(0)) revert InvalidProtocol();
         delete adapters[protocol];
         emit AdapterRemoved(protocol);
     }
@@ -94,16 +103,21 @@ contract UniversalSwapRouter is Ownable {
     function setProtocolPriority(
         bytes32[] calldata protocols
     ) external onlyOwner {
-        require(protocols.length > 0, "empty list");
-
+        if(protocols.length == 0) revert EmptyProtocolList();
         protocolPriority = protocols;
-        
         emit ProtocolPrioritySet(protocols);
     }
 
     function updateFallbackConfig(
         FallbackConfig calldata config
     ) external onlyOwner {
+        if(
+            config.circuitBreakerDuration == 0 ||
+            config.maxConsecutiveFailures == 0 ||
+            config.maxRetries == 0 ||
+            config.fallbackSlippageBps == 0
+        ) revert CannotBeZero();
+
         fallbackConfig = config;
     }
 
@@ -117,6 +131,18 @@ contract UniversalSwapRouter is Ownable {
         external
         returns (uint256 amountIn, uint256 amountOut, bytes32 usedProtocol)
     {
+        // Checks
+        if(
+            collateralAsset == address(0) ||
+            debtAsset == address(0)
+        ) revert InvalidAddress();
+        if(
+            collateralAmount == 0 ||
+            minDebtAssetOut == 0
+        ) revert InvalidAmount();
+        if(loanProviderId == bytes32(0)) revert InvalidProtocol();
+
+        // Build params
         ISwapAdapter.MultiHopParams memory params = _buildMultiHopParams(
             collateralAsset,
             debtAsset,
@@ -124,13 +150,14 @@ contract UniversalSwapRouter is Ownable {
             minDebtAssetOut
         );
 
-        // get base protocol
+        // get best protocol
         (bytes32 protocol, , ) = quoteBestProtocol(params);
         // Loop through available adapters
         (amountIn, amountOut, usedProtocol) = _executeTryMultiple(protocol, params, loanProviderId);
     }
 
     function resetCircuitBreaker(bytes32 protocol) external {
+        if(protocol == bytes32(0)) revert InvalidProtocol();
         ProtocolHealth storage health = protocolHealth[protocol];
         health.isCircuitOpen = false;
         health.circuitOpenUntil = 0;
@@ -141,6 +168,7 @@ contract UniversalSwapRouter is Ownable {
     function getProtocolHealth(
         bytes32 protocol
     ) external view returns (ProtocolHealth memory) {
+        if(protocol == bytes32(0)) revert InvalidProtocol();
         return protocolHealth[protocol];
     }
 
@@ -200,7 +228,7 @@ contract UniversalSwapRouter is Ownable {
         bytes32 protocol,
         ISwapAdapter.MultiHopParams calldata params
     ) external view returns (uint256 amountIn, uint256 amountOut) {
-        // Fetch adapter
+        if(protocol == bytes32(0)) revert InvalidProtocol();
         address adapter = adapters[protocol];
         require(adapter != address(0), "Protocol not supported");
 
@@ -218,6 +246,10 @@ contract UniversalSwapRouter is Ownable {
         ISwapAdapter.MultiHopParams memory params,
         bytes32 loanProviderId
     ) internal returns(uint256, uint256, bytes32) {
+        if(
+            loanProviderId == bytes32(0) ||
+            _protocol == bytes32(0)
+        ) revert InvalidProtocol();
 
         for (uint256 i = 0; i < protocolPriority.length; i++) {
             bytes32 protocol = protocolPriority[i];

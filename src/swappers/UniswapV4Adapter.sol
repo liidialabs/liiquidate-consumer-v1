@@ -24,8 +24,6 @@ contract UniswapV4Adapter is Ownable, ISwapAdapter, IUnlockCallback {
     using StateLibrary for IPoolManager;
     using PoolIdLibrary for PoolKey;
 
-    error InsufficientAmountOut(uint256 finalAmountOut, uint256 minAmountOut);
-
     IPoolManager public immutable poolManager;
 
     bytes32 private constant PROTOCOL_ID = keccak256("UNISWAP_V4");
@@ -33,6 +31,23 @@ contract UniswapV4Adapter is Ownable, ISwapAdapter, IUnlockCallback {
     uint256 private callCount;
 
     mapping(bytes32 => ISwapAdapter.SwapPath) private registeredPaths;
+
+    /// ERRORS ///
+
+    error InsufficientSwapOutput();
+    error ExcessInputAmount();
+    error PoolNotInitialized();
+    error TokenMismatch();
+    error FeeMismatch();
+    error InvalidAddress();
+    error PathHasLessTokens();
+    error TokenInMismatch();
+    error TokenOutMismatch();
+    error InsufficientPoolKeys();
+    error InsufficientFeesToPoolKeys();
+    error InvalidPriceOrLiquidity();
+    error NotPoolManager();
+    error InsufficientAmountOut(uint256 finalAmountOut, uint256 minAmountOut);
 
     constructor(address _poolManager) Ownable(msg.sender) {
         require(_poolManager != address(0), "Invalid Address");
@@ -71,9 +86,9 @@ contract UniswapV4Adapter is Ownable, ISwapAdapter, IUnlockCallback {
 
         // Validate slippage
         if (params.isExactInput) {
-            require(amountOut >= params.minAmountOut, "Insufficient output");
+            if(amountOut <= params.minAmountOut) revert InsufficientSwapOutput();
         } else {
-            require(amountIn <= params.maxAmountIn, "Excessive input");
+            if(amountIn > params.maxAmountIn) revert ExcessInputAmount();
         }
     }
 
@@ -188,7 +203,7 @@ contract UniswapV4Adapter is Ownable, ISwapAdapter, IUnlockCallback {
         
         // Check pool exists
         (uint160 sqrtPriceX96, , , ) = poolManager.getSlot0(poolKey.toId());
-        require(sqrtPriceX96 != 0, "Pool not initialized");
+        if(sqrtPriceX96 == 0) revert PoolNotInitialized();
         
         // Check tokens match
         address token0 = Currency.unwrap(poolKey.currency0);
@@ -196,15 +211,14 @@ contract UniswapV4Adapter is Ownable, ISwapAdapter, IUnlockCallback {
         address expectedIn = path.tokens[hopIndex];
         address expectedOut = path.tokens[hopIndex + 1];
         
-        require(
+        if(
             (token0 == expectedIn && token1 == expectedOut) ||
-            (token1 == expectedIn && token0 == expectedOut),
-            "Token mismatch"
-        );
+            (token1 == expectedIn && token0 == expectedOut)
+        ) revert TokenMismatch();
         
         // Check fee if provided
         if (path.fees.length > 0) {
-            require(poolKey.fee == path.fees[hopIndex], "Fee mismatch");
+            if(poolKey.fee != path.fees[hopIndex]) revert FeeMismatch();
         }
     }
 
@@ -215,18 +229,15 @@ contract UniswapV4Adapter is Ownable, ISwapAdapter, IUnlockCallback {
         bytes[] calldata poolData,
         uint24[] calldata fees
     ) external override onlyOwner {
-        require(
-            tokenIn != address(0) && tokenOut != address(0),
-            "Invalid tokens"
-        );
-        require(path.length >= 2, "Path must have at least 2 tokens");
-        require(path[0] == tokenIn, "Path must start with tokenIn");
-        require(
-            path[path.length - 1] == tokenOut,
-            "Path must end with tokenOut"
-        );
-        require(poolData.length == path.length - 1, "poolData length mismatch");
-        require(fees.length == path.length - 1, "fees length mismatch");
+        if(
+            tokenIn == address(0) ||
+            tokenOut == address(0)
+        ) revert InvalidAddress();
+        if(path.length < 2) revert PathHasLessTokens();
+        if(path[0] != tokenIn) revert TokenInMismatch();
+        if(path[path.length - 1] != tokenOut) revert TokenOutMismatch();
+        if(poolData.length != path.length - 1) revert InsufficientPoolKeys();
+        if(fees.length != path.length - 1) revert InsufficientFeesToPoolKeys();
 
         bytes32 pathKey = _getPathKey(tokenIn, tokenOut);
         registeredPaths[pathKey] = ISwapAdapter.SwapPath({
@@ -276,9 +287,7 @@ contract UniswapV4Adapter is Ownable, ISwapAdapter, IUnlockCallback {
         bool zeroForOne,
         uint24 fee
     ) internal pure returns (uint256 amountOut) {
-        if (sqrtPriceX96 == 0 || liquidity == 0) {
-            revert ("InvalidPriceOrLiquidity");
-        }
+        if (sqrtPriceX96 == 0 || liquidity == 0) revert InvalidPriceOrLiquidity();
         // Apply fee to input amount
         uint256 amountInWithFee = (amountIn * (1000000 - fee)) / 1000000;
 
@@ -315,9 +324,7 @@ contract UniswapV4Adapter is Ownable, ISwapAdapter, IUnlockCallback {
         bool zeroForOne,
         uint24 fee
     ) internal pure returns (uint256 amountIn) {
-        if (sqrtPriceX96 == 0 || liquidity == 0) {
-            revert ("InvalidPriceOrLiquidity");
-        }
+        if (sqrtPriceX96 == 0 || liquidity == 0) revert InvalidPriceOrLiquidity();
         // Calculate next sqrt price needed to output the desired amount
         uint160 nextSqrtPrice = SqrtPriceMath.getNextSqrtPriceFromOutput(
             sqrtPriceX96,
@@ -447,6 +454,6 @@ contract UniswapV4Adapter is Ownable, ISwapAdapter, IUnlockCallback {
     }
 
     function _onlyPoolManager() internal view {
-        require(msg.sender == address(poolManager), "not pool manager");
+        if(msg.sender != address(poolManager)) revert NotPoolManager();
     }
 }

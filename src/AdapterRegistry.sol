@@ -8,6 +8,8 @@ contract AdapterRegistry is Ownable {
     // protocol-name-in-bytes -> protocol address
     mapping(bytes32 => address) private adapters;
 
+    /// EVENTS ///
+
     event AdapterRegistered(
         bytes32 protocol,
         address adapter
@@ -17,21 +19,28 @@ contract AdapterRegistry is Ownable {
         bytes32 protocol
     );
 
+    /// ERRORS ///
+
+    error InvalidAddress();
+    error InvalidProtocol();
+
     constructor() Ownable(msg.sender) {}
 
     function registerAdapter(
         bytes32 protocol,
         address adapter
     ) external onlyOwner {
-        require(adapter != address(0), "invalid adapter");
-        adapters[protocol] = adapter;
+        if(adapter == address(0)) revert InvalidAddress();
+        if(protocol == bytes32(0)) revert InvalidProtocol();
 
+        adapters[protocol] = adapter;
         emit AdapterRegistered(protocol, adapter);
     }
 
     function removeAdapter(
         bytes32 protocol
     ) external onlyOwner {
+        if(protocol == bytes32(0)) revert InvalidProtocol();
         delete adapters[protocol];
         emit AdapterRemoved(protocol);
     }
@@ -39,6 +48,7 @@ contract AdapterRegistry is Ownable {
     function getAdapter(
         bytes32 protocol
     ) external view returns (address) {
+        if(protocol == bytes32(0)) revert InvalidProtocol();
         return adapters[protocol];
     }
 }

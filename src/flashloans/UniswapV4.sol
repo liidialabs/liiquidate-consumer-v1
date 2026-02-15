@@ -29,14 +29,23 @@ contract UniswapV4 is Ownable, IFlashLoan, IUnlockCallback {
     address[] debtCovered;
     uint256 public callCount;
 
+    error InvalidAddress();
+    error NotPoolManager();
+    error NoZeroAmount();
+    error LiquidationFailed();
+    error NoCollateralSeized();
+    error InsufficientSwapOutput();
+    error NotProfitable();
+
     constructor(
         address _poolManager, 
         address _swapRouter
     ) Ownable(msg.sender) {
-        require(
-            _poolManager != address(0) && _swapRouter != address(0),
-            "invalid address"
-        );
+        if(
+            _poolManager == address(0) || 
+            _swapRouter == address(0)
+        ) revert InvalidAddress();
+
         poolManager = IPoolManager(_poolManager);
         swapRouter = UniversalSwapRouter(_swapRouter);
 
@@ -56,13 +65,12 @@ contract UniswapV4 is Ownable, IFlashLoan, IUnlockCallback {
         bytes calldata data
     ) external override {
         // checks
-        require(
-            debtAsset != address(0) &&
-                targetContract != address(0) &&
-                collateralAsset != address(0),
-            "Invalid Address"
-        );
-        require(debtToCover != 0, "Amount cannot be zero!");
+        if(
+            debtAsset == address(0) ||
+            targetContract == address(0) ||
+            collateralAsset == address(0)
+        ) revert InvalidAddress();
+        if(debtToCover == 0) revert NoZeroAmount();
 
         callCount++;
 
@@ -106,12 +114,12 @@ contract UniswapV4 is Ownable, IFlashLoan, IUnlockCallback {
         (bool success, ) = targetContract.call(
             liquidationParams.liquidationCalldata
         );
-        require(success, "liquidation failed");
+        if(!success) revert LiquidationFailed();
 
         // Get collateral received
         uint256 collateralReceived = IERC20(liquidationParams.collateralAsset)
             .balanceOf(address(this));
-        require(collateralReceived > 0, "no collateral received");
+        if(collateralReceived == 0) revert NoCollateralSeized();
 
         ///////////////// SWAP CALL //////////////////
 
@@ -128,10 +136,7 @@ contract UniswapV4 is Ownable, IFlashLoan, IUnlockCallback {
         );
 
         // Verify the swap was successful
-        require(
-            swappedOut >= liquidationParams.debtToCover,
-            "Insufficient swap output"
-        );
+        if(swappedOut <= liquidationParams.debtToCover) revert InsufficientSwapOutput();
 
         //////////// REPAY //////////////
 
@@ -149,7 +154,7 @@ contract UniswapV4 is Ownable, IFlashLoan, IUnlockCallback {
         // Calculate profit
         uint256 profit = IERC20(liquidationParams.debtAsset)
             .balanceOf(address(this));
-        require(profit > 0, "not profitable");
+        if(profit == 0) revert NotProfitable();
 
         // record
         if(!isRecorded[liquidationParams.debtAsset]) debtCovered.push(liquidationParams.debtAsset);
@@ -171,9 +176,11 @@ contract UniswapV4 is Ownable, IFlashLoan, IUnlockCallback {
         /// EVENT ///
 
         emit LiquidationExecuted(
+            "UNISWAP_V4",
+            liquidationParams.liquidationTarget,
             caller,
-            liquidationParams.collateralAsset,
             liquidationParams.debtAsset,
+            liquidationParams.collateralAsset,
             liquidationParams.debtToCover,
             collateralReceived,
             profit
@@ -197,8 +204,8 @@ contract UniswapV4 is Ownable, IFlashLoan, IUnlockCallback {
 
     ///// INTERNAL /////
 
-    function _onlyPoolManager() internal {
-        require(msg.sender == address(poolManager), "not pool manager");
+    function _onlyPoolManager() internal view {
+        if(msg.sender != address(poolManager)) revert NotPoolManager();
     }
 
     function _approveSwapAdapters(address token) internal {

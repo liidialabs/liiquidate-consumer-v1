@@ -29,11 +29,26 @@ contract AaveV3 is Ownable, IFlashLoan {
     address[] debtCovered;
     uint256 public callCount;
 
+    // ERRORS
+
+    error InvalidAddress();
+    error NotPoolManager();
+    error NoZeroAmount();
+    error InvalidInitiator();
+    error LiquidationFailed();
+    error NoCollateralSeized();
+    error InsufficientSwapOutput();
+    error CannotRepayLoan();
+    error NotProfitable();
+
     constructor(
         address _pool, 
         address _swapRouter
     ) Ownable(msg.sender) {
-        require(_pool != address(0) && _swapRouter != address(0), "invalid pool");
+        if(
+            _pool == address(0) || 
+            _swapRouter == address(0)
+        ) revert InvalidAddress();
         
         pool = IPool(_pool);
         swapRouter = UniversalSwapRouter(_swapRouter);
@@ -54,13 +69,12 @@ contract AaveV3 is Ownable, IFlashLoan {
         bytes calldata data
     ) external override {
         // checks
-        require(
-            debtAsset != address(0) &&
-            targetContract != address(0) &&
-            collateralAsset != address(0),
-            "Invalid Address"
-        );
-        require(debtToCover != 0, "Amount cannot be zero!");
+        if(
+            debtAsset == address(0) ||
+            targetContract == address(0) ||
+            collateralAsset == address(0)
+        ) revert InvalidAddress();
+        if(debtToCover == 0) revert NoZeroAmount();
 
         callCount++;
 
@@ -91,7 +105,7 @@ contract AaveV3 is Ownable, IFlashLoan {
         address initiator,
         bytes calldata params
     ) external onlyPoolManager returns (bool) {
-        require(initiator == address(this), "invalid initiator");
+        if(initiator != address(this)) revert InvalidInitiator();
 
         (address caller, LiquidationParams memory liquidationParams) = abi
             .decode(params, (address, LiquidationParams));
@@ -108,12 +122,12 @@ contract AaveV3 is Ownable, IFlashLoan {
         (bool success, ) = targetContract.call(
             liquidationParams.liquidationCalldata
         );
-        require(success, "liquidation failed");
+        if(!success) revert LiquidationFailed();
 
         // Get collateral received
         uint256 collateralReceived = IERC20(liquidationParams.collateralAsset)
             .balanceOf(address(this));
-        require(collateralReceived > 0, "no collateral received");
+        if(collateralReceived == 0) revert NoCollateralSeized();
 
         ///////////////// SWAP CALL //////////////////
 
@@ -133,16 +147,16 @@ contract AaveV3 is Ownable, IFlashLoan {
         );
 
         // Verify the swap was successful
-        require(swappedOut >= totalDebt, "Insufficient swap output");
+        if(swappedOut <= totalDebt) revert InsufficientSwapOutput();
 
         // Calculate and verify repayment
         uint256 debtAssetBalance = IERC20(liquidationParams.debtAsset)
             .balanceOf(address(this));
-        require(debtAssetBalance >= totalDebt, "insufficient repayment");
+        if(debtAssetBalance < totalDebt) revert CannotRepayLoan();
 
         // Calculate profit
         uint256 profit = debtAssetBalance - totalDebt;
-        require(profit > 0, "not profitable");
+        if(profit == 0) revert NotProfitable();
 
         // record
         if(!isRecorded[liquidationParams.debtAsset]) debtCovered.push(liquidationParams.debtAsset);
@@ -165,9 +179,11 @@ contract AaveV3 is Ownable, IFlashLoan {
         }
 
         emit LiquidationExecuted(
+            "AAVE_V3",
+            liquidationParams.liquidationTarget,
             caller,
-            liquidationParams.collateralAsset,
             liquidationParams.debtAsset,
+            liquidationParams.collateralAsset,
             liquidationParams.debtToCover,
             collateralReceived,
             profit
@@ -203,8 +219,8 @@ contract AaveV3 is Ownable, IFlashLoan {
         }
     }
 
-    function _onlyPoolManager() internal {
-        require(msg.sender == address(pool), "not pool manager");
+    function _onlyPoolManager() internal view {
+        if(msg.sender != address(pool)) revert NotPoolManager();
     }
 
     //// VIEW ////
