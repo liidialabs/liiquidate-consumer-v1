@@ -3,6 +3,11 @@ pragma solidity ^0.8.20;
 
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
+import {PoolKey} from "@uniswap/v4-core/src/types/PoolKey.sol";
+import { PoolIdLibrary, PoolId } from "@uniswap/v4-core/src/types/PoolId.sol";
+import {Currency} from "@uniswap/v4-core/src/types/Currency.sol";
+import {BalanceDelta} from "@uniswap/v4-core/src/types/BalanceDelta.sol";
+import {SqrtPriceMath} from "@uniswap/v4-core/src/libraries/SqrtPriceMath.sol";
 
 /**
  * @title IUnlockCallback
@@ -15,41 +20,13 @@ interface IUnlockCallback {
 }
 
 /**
- * @title Currency
- * @notice Wrapper type for currency addresses
- */
-type Currency is address;
-
-/**
- * @title BalanceDelta
- * @notice Represents a balance change
- */
-type BalanceDelta is bytes32;
-
-/**
- * @title PoolKey
- * @notice Represents a pool identifier
- */
-struct PoolKey {
-    Currency currency0;
-    Currency currency1;
-    uint24 fee;
-    int24 tickSpacing;
-    address hooks;
-}
-
-/**
- * @title PoolId
- * @notice Represents a unique pool identifier
- */
-type PoolId is bytes32;
-
-/**
  * @title MockUniswapV4PoolManager
  * @notice Mock Uniswap V4 Pool Manager for testing
  * @dev Simulates core Uniswap V4 functionality: swaps, positions, and the unlock callback mechanism
  */
 contract MockUniswapV4PoolManager is Ownable {
+    using PoolIdLibrary for PoolKey;
+
     /// @notice Pool configuration and state
     struct Pool {
         uint160 sqrtPriceX96; // Current sqrt(price) in Q64.96 format
@@ -57,8 +34,6 @@ contract MockUniswapV4PoolManager is Ownable {
         uint128 liquidity; // Current liquidity
         bool initialized; // Whether the pool has been initialized
         uint24 protocolFee; // Protocol fee
-        mapping(bytes32 => uint256) feeGrowthGlobal0X128; // Fee growth
-        mapping(bytes32 => uint256) feeGrowthGlobal1X128; // Fee growth
     }
 
     /// @notice Currency balance tracking for unlock mechanism
@@ -77,6 +52,8 @@ contract MockUniswapV4PoolManager is Ownable {
     // Pool storage
     mapping(PoolId => Pool) public pools;
     mapping(address => PriceData) public priceFeeds; // Mock price oracle
+
+    uint256 private constant POOLS_SLOT = 6;
 
     // Global state for unlock mechanism
     bool private isUnlocked;
@@ -144,25 +121,78 @@ contract MockUniswapV4PoolManager is Ownable {
         return result;
     }
 
+    // /**
+    //  * @notice Initializes a pool with the given parameters
+    //  * @param key The pool key
+    //  * @param sqrtPriceX96 The initial sqrt price
+    //  * @return tick The initial tick
+    //  */
+    // function initialize(
+    //     PoolKey memory key,
+    //     uint160 sqrtPriceX96
+    // ) external returns (int24 tick) {
+    //     require(sqrtPriceX96 > 0, "Invalid price");
+
+    //     PoolId id = PoolId.wrap(keccak256(abi.encode(key)));
+    //     require(!pools[id].initialized, "Pool already initialized");
+
+    //     // Initialize pool
+    //     pools[id].sqrtPriceX96 = sqrtPriceX96;
+    //     pools[id].tick = calculateTick(sqrtPriceX96);
+    //     pools[id].liquidity = 100e18;
+    //     pools[id].initialized = true;
+
+    //     tick = pools[id].tick;
+
+    //     emit Initialize(
+    //         id,
+    //         key.currency0,
+    //         key.currency1,
+    //         key.fee,
+    //         key.tickSpacing,
+    //         address(key.hooks),
+    //         sqrtPriceX96,
+    //         tick
+    //     );
+
+    //     // 
+
+    //     bytes32 slot = keccak256(abi.encode(id, POOLS_SLOT));
+    //     // Pack: sqrtPriceX96 (160 bits) | tick (24 bits) | protocolFee (24 bits) | lpFee (24 bits)
+    //     bytes32 data = bytes32(uint256(sqrtPriceX96));
+    //     assembly {
+    //         sstore(slot, data)
+    //     }
+
+    //     // Store liquidity in the next slot
+    //     uint128 initialLiquidity = 100e18;
+    //     bytes32 liquiditySlot = bytes32(uint256(slot) + 1);
+    //     assembly {
+    //         sstore(liquiditySlot, initialLiquidity)
+    //     }
+    // }
+
     /**
-     * @notice Initializes a pool with the given parameters
-     * @param key The pool key
-     * @param sqrtPriceX96 The initial sqrt price
-     * @return tick The initial tick
-     */
+    * @notice Initializes a pool with the given parameters
+    * @param key The pool key
+    * @param sqrtPriceX96 The initial sqrt price
+    * @param initialLiquidity The initial liquidity
+    * @return tick The initial tick
+    */
     function initialize(
         PoolKey memory key,
-        uint160 sqrtPriceX96
+        uint160 sqrtPriceX96,
+        uint128 initialLiquidity
     ) external returns (int24 tick) {
         require(sqrtPriceX96 > 0, "Invalid price");
 
-        PoolId id = keccak256(abi.encode(key));
+        PoolId id = PoolId.wrap(keccak256(abi.encode(key)));
         require(!pools[id].initialized, "Pool already initialized");
 
-        // Initialize pool
+        // Initialize pool with liquidity
         pools[id].sqrtPriceX96 = sqrtPriceX96;
         pools[id].tick = calculateTick(sqrtPriceX96);
-        pools[id].liquidity = 0;
+        pools[id].liquidity = initialLiquidity;
         pools[id].initialized = true;
 
         tick = pools[id].tick;
@@ -173,10 +203,85 @@ contract MockUniswapV4PoolManager is Ownable {
             key.currency1,
             key.fee,
             key.tickSpacing,
-            key.hooks,
+            address(key.hooks),
             sqrtPriceX96,
             tick
         );
+
+        // 🔑 Store data in the EXACT slots that StateLibrary expects
+        _storePoolData(id, sqrtPriceX96, pools[id].tick, initialLiquidity);
+        
+        return tick;
+    }
+
+    /**
+    * @notice Internal function to store pool data in correct storage slots
+    * @dev This matches the storage layout expected by StateLibrary
+    */
+    function _storePoolData(
+        PoolId id,
+        uint160 sqrtPriceX96,
+        int24 tick,
+        uint128 liquidity
+    ) internal {
+        // Calculate base slot for this pool
+        bytes32 stateSlot = keccak256(abi.encodePacked(PoolId.unwrap(id), POOLS_SLOT));
+        
+        // Slot 0: sqrtPriceX96 + tick + protocolFee + lpFee
+        uint256 packed = uint256(sqrtPriceX96);
+        packed |= (uint256(uint24(tick)) << 160);
+        // Add fees if needed (currently 0)
+        
+        assembly {
+            sstore(stateSlot, packed)
+        }
+        
+        // Slot 1: feeGrowthGlobal0X128 (store 0 for now)
+        bytes32 feeGrowth0Slot = bytes32(uint256(stateSlot) + 1);
+        assembly {
+            sstore(feeGrowth0Slot, 0)
+        }
+        
+        // Slot 2: feeGrowthGlobal1X128 (store 0 for now)
+        bytes32 feeGrowth1Slot = bytes32(uint256(stateSlot) + 2);
+        assembly {
+            sstore(feeGrowth1Slot, 0)
+        }
+        
+        // ✅ Slot 3: liquidity (THIS IS WHERE StateLibrary EXPECTS IT!)
+        bytes32 liquiditySlot = bytes32(uint256(stateSlot) + 3);
+        assembly {
+            sstore(liquiditySlot, liquidity)
+        }
+    }
+
+    /**
+    * @notice Sets liquidity for a pool (for testing purposes)
+    * @param key The pool key
+    * @param newLiquidity The liquidity amount to set
+    */
+    function setLiquidity(PoolKey memory key, uint128 newLiquidity) external {
+        PoolId id = PoolId.wrap(keccak256(abi.encode(key)));
+        require(pools[id].initialized, "Pool not initialized");
+        pools[id].liquidity = newLiquidity;
+        
+        // Also update the storage slot for extsload compatibility
+        bytes32 slot = keccak256(abi.encode(id, POOLS_SLOT));
+        bytes32 liquiditySlot = bytes32(uint256(slot) + 1); // Next slot for liquidity
+        
+        assembly {
+            sstore(liquiditySlot, newLiquidity)
+        }
+    }
+
+    /**
+    * @notice Gets liquidity for a pool
+    * @param id The pool ID
+    * @return The liquidity
+    */
+    function getLiquidity(PoolId id) external view returns (uint128) {
+        require(pools[id].initialized, "Pool not initialized");
+        return pools[id].liquidity;
     }
 
     /**
@@ -194,7 +299,7 @@ contract MockUniswapV4PoolManager is Ownable {
         require(isUnlocked, "Must be unlocked");
         require(params.amountSpecified != 0, "Amount cannot be zero");
 
-        PoolId id = keccak256(abi.encode(key));
+        PoolId id = PoolId.wrap(keccak256(abi.encode(key)));
         require(pools[id].initialized, "Pool not initialized");
 
         Pool storage pool = pools[id];
@@ -236,6 +341,24 @@ contract MockUniswapV4PoolManager is Ownable {
         swapCount[id]++;
         totalSwapVolume[id] += amountIn;
 
+        // CONSTRUCT THE BALANCE DELTA
+        int128 amount0;
+        int128 amount1;
+        
+        if (params.zeroForOne) {
+            // Swapping token0 for token1
+            // amount0 is positive (we're taking from user)
+            // amount1 is negative (we're giving to user)
+            amount0 = int128(int256(amountIn));
+            amount1 = -int128(int256(amountOut));
+        } else {
+            // Swapping token1 for token0
+            // amount0 is negative (we're giving to user)
+            // amount1 is positive (we're taking from user)
+            amount0 = -int128(int256(amountOut));
+            amount1 = int128(int256(amountIn));
+        }
+
         emit Swap(
             id,
             msg.sender,
@@ -251,7 +374,27 @@ contract MockUniswapV4PoolManager is Ownable {
             key.fee
         );
 
+        // RETURN THE CONSTRUCTED BALANCE DELTA
+        swapDelta = toBalanceDelta(amount0, amount1);
+
         return swapDelta;
+    }
+
+    /**
+    * @notice Helper to create a BalanceDelta
+    * @param amount0 The amount0 delta
+    * @param amount1 The amount1 delta
+    * @return The BalanceDelta
+    */
+    function toBalanceDelta(
+        int128 amount0,
+        int128 amount1
+    ) internal pure returns (BalanceDelta) {
+        // BalanceDelta packs two int128s into a single int256
+        // Upper 128 bits: amount0
+        // Lower 128 bits: amount1
+        int256 packed = (int256(amount0) << 128) | (int256(uint256(uint128(amount1))));
+        return BalanceDelta.wrap(packed);
     }
 
     /**
@@ -364,7 +507,7 @@ contract MockUniswapV4PoolManager is Ownable {
         view
         returns (uint160 sqrtPriceX96, int24 tick, uint128 liquidity)
     {
-        PoolId id = keccak256(abi.encode(key));
+        PoolId id = PoolId.wrap(keccak256(abi.encode(key)));
         require(pools[id].initialized, "Pool not initialized");
 
         sqrtPriceX96 = pools[id].sqrtPriceX96;
@@ -389,6 +532,44 @@ contract MockUniswapV4PoolManager is Ownable {
         return currencyDeltas[currency];
     }
 
+    function getSlot0(PoolId id) 
+        external 
+        view 
+        returns (
+            uint160 sqrtPriceX96,
+            int24 tick,
+            uint24 protocolFee,
+            uint24 lpFee
+        ) 
+    {
+        Pool storage s = pools[id];
+        require(s.initialized, "Pool not initialized!");  // ✅ Add check here
+        return (s.sqrtPriceX96, s.tick, s.protocolFee, s.protocolFee);
+    }
+
+    function extsload(bytes32 slot) external view returns (bytes32 value) {
+        assembly {
+            value := sload(slot)
+        }
+    }
+    
+    function extsload(bytes32[] calldata slots) 
+        external 
+        view 
+        returns (bytes32[] memory) 
+    {
+        bytes32[] memory values = new bytes32[](slots.length);
+        for (uint256 i = 0; i < slots.length; i++) {
+            assembly {
+                mstore(
+                    add(add(values, 32), mul(i, 32)),
+                    sload(mload(add(add(slots.offset, 0), mul(i, 32))))
+                )
+            }
+        }
+        return values;
+    }
+
     // Internal helper functions
 
     /**
@@ -397,6 +578,27 @@ contract MockUniswapV4PoolManager is Ownable {
      * @param amountSpecified The amount specified
      * @param zeroForOne Trade direction
      */
+    // function calculateSwapAmounts(
+    //     Pool storage pool,
+    //     int256 amountSpecified,
+    //     bool zeroForOne
+    // ) internal view returns (uint256 amountIn, uint256 amountOut) {
+    //     uint256 absAmount = amountSpecified > 0
+    //         ? uint256(amountSpecified)
+    //         : uint256(-amountSpecified);
+
+    //     // Simplified: 1% slippage
+    //     if (amountSpecified < 0) {
+    //         // Exact input
+    //         amountIn = absAmount;
+    //         amountOut = (amountIn * 99) / 100;
+    //     } else {
+    //         // Exact output
+    //         amountOut = absAmount;
+    //         amountIn = (amountOut * 101) / 100;
+    //     }
+    // }
+
     function calculateSwapAmounts(
         Pool storage pool,
         int256 amountSpecified,
@@ -406,15 +608,67 @@ contract MockUniswapV4PoolManager is Ownable {
             ? uint256(amountSpecified)
             : uint256(-amountSpecified);
 
-        // Simplified: 1% slippage
+        // 🔑 USE REAL UNISWAP MATH
         if (amountSpecified < 0) {
             // Exact input
             amountIn = absAmount;
-            amountOut = (amountIn * 99) / 100;
+            amountOut = absAmount * 1400e18 / 1e18;
+            
+            // // Apply fee (assuming 0.3% = 3000)
+            // uint256 amountInWithFee = (amountIn * 997000) / 1000000;
+            
+            // // Calculate using real Uniswap math
+            // uint160 nextSqrtPrice = SqrtPriceMath.getNextSqrtPriceFromInput(
+            //     pool.sqrtPriceX96,
+            //     pool.liquidity,
+            //     amountInWithFee,
+            //     zeroForOne
+            // );
+            
+            // if (zeroForOne) {
+            //     amountOut = SqrtPriceMath.getAmount1Delta(
+            //         nextSqrtPrice,
+            //         pool.sqrtPriceX96,
+            //         pool.liquidity,
+            //         false
+            //     );
+            // } else {
+            //     amountOut = SqrtPriceMath.getAmount0Delta(
+            //         pool.sqrtPriceX96,
+            //         nextSqrtPrice,
+            //         pool.liquidity,
+            //         false
+            //     );
+            // }
         } else {
             // Exact output
             amountOut = absAmount;
-            amountIn = (amountOut * 101) / 100;
+            
+            uint160 nextSqrtPrice = SqrtPriceMath.getNextSqrtPriceFromOutput(
+                pool.sqrtPriceX96,
+                pool.liquidity,
+                amountOut,
+                zeroForOne
+            );
+            
+            if (zeroForOne) {
+                amountIn = SqrtPriceMath.getAmount0Delta(
+                    pool.sqrtPriceX96,
+                    nextSqrtPrice,
+                    pool.liquidity,
+                    true
+                );
+            } else {
+                amountIn = SqrtPriceMath.getAmount1Delta(
+                    nextSqrtPrice,
+                    pool.sqrtPriceX96,
+                    pool.liquidity,
+                    true
+                );
+            }
+            
+            // Add fee back
+            amountIn = (amountIn * 1000000) / 997000 + 1;
         }
     }
 
@@ -445,7 +699,7 @@ contract MockUniswapV4PoolManager is Ownable {
     function getSwapStats(
         PoolKey memory key
     ) external view returns (uint256 count, uint256 volume) {
-        PoolId id = keccak256(abi.encode(key));
+        PoolId id = PoolId.wrap(keccak256(abi.encode(key)));
         return (swapCount[id], totalSwapVolume[id]);
     }
 

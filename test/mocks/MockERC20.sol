@@ -181,7 +181,7 @@ contract MockERC20 is ERC20, Ownable {
     function increaseAllowance(
         address spender,
         uint256 addedValue
-    ) public override returns (bool) {
+    ) public returns (bool) {
         uint256 currentAllowance = allowance(msg.sender, spender);
         _approve(msg.sender, spender, currentAllowance + addedValue);
         return true;
@@ -196,7 +196,7 @@ contract MockERC20 is ERC20, Ownable {
     function decreaseAllowance(
         address spender,
         uint256 subtractedValue
-    ) public override returns (bool) {
+    ) public returns (bool) {
         uint256 currentAllowance = allowance(msg.sender, spender);
         require(
             currentAllowance >= subtractedValue,

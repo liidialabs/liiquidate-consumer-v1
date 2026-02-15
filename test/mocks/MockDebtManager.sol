@@ -1,15 +1,19 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
 
-import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import "@openzeppelin/contracts/access/Ownable.sol";
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 
 /**
  * @title MockDebtManager
  * @notice Mock implementation of IDebtManager for testing lending protocol scenarios
  * @dev Simulates user debt, collateral, health factors, and liquidation mechanics
  */
+
 contract MockDebtManager is Ownable {
+    using SafeERC20 for IERC20;
+
     // User account data
     struct UserAccount {
         uint256 totalCollateral; // in USD (1e8 = 1 USD)
@@ -54,6 +58,9 @@ contract MockDebtManager is Ownable {
     event CollateralConfigured(address indexed collateral, uint256 bonus);
     event PriceUpdated(address indexed asset, uint256 price);
     event HealthFactorUpdated(address indexed user, uint256 newHealthFactor);
+    event CurrentHealthFactor(uint256 newHealthFactor);
+
+    error HealthFactorNotImproved(uint256 newHealthFactor);
 
     constructor() Ownable(msg.sender) {}
 
@@ -225,47 +232,60 @@ contract MockDebtManager is Ownable {
     /**
      * @notice Liquidates a user's position
      * @param user The user to liquidate
-     * @param collateral The collateral to seize
+     * @param debtAsset The asset that was borrowed
+     * @param collateralAsset The collateral to seize
      * @param repayAmount Amount to repay in debt asset
      * @param isEth Whether to return as ETH
      */
     function liquidate(
         address user,
-        address collateral,
+        address debtAsset,
+        address collateralAsset,
         uint256 repayAmount,
         bool isEth
     ) external {
         require(user != address(0), "Invalid user");
-        require(collateral != address(0), "Invalid collateral");
+        require(collateralAsset != address(0), "Invalid collateral");
         require(repayAmount > 0, "Repay amount must be positive");
 
         UserAccount storage account = userAccounts[user];
         require(account.healthFactor < 1e18, "User not liquidatable");
+        emit CurrentHealthFactor(account.healthFactor);
+
+        IERC20(debtAsset).safeTransferFrom(msg.sender, address(this), repayAmount);
 
         // Calculate collateral to seize
         uint256 collateralToSeize = getCollateralAmountLiquidate(
-            collateral,
+            collateralAsset,
+            debtAsset,
             repayAmount
         );
 
+        // Transfer to liquidator
+        IERC20(collateralAsset).safeTransfer(msg.sender, collateralToSeize);
+
         // Update balances
-        userCollateralBalance[user][collateral] -= collateralToSeize;
+        userCollateralBalance[user][collateralAsset] -= collateralToSeize;
         account.totalCollateral -=
-            (collateralToSeize * assetPrices[collateral]) /
+            (collateralToSeize * assetPrices[collateralAsset]) /
             1e18;
-        account.totalDebt -= (repayAmount * assetPrices[collateral]) / 1e18;
+        account.totalDebt -= (repayAmount * assetPrices[debtAsset]) / 1e18;
 
         // Recalculate health factor
         account.healthFactor = calculateHealthFactor(
             account.totalCollateral,
             account.totalDebt,
-            collateral
+            collateralAsset
         );
+
+        if(account.healthFactor < 1e18) {
+            revert HealthFactorNotImproved(account.healthFactor);
+        }
 
         totalLiquidations++;
         totalLiquidationAmount += repayAmount;
 
-        emit UserLiquidated(user, collateral, repayAmount, collateralToSeize);
+        emit UserLiquidated(user, collateralAsset, repayAmount, collateralToSeize);
         emit HealthFactorUpdated(user, account.healthFactor);
     }
 
@@ -277,6 +297,7 @@ contract MockDebtManager is Ownable {
      */
     function getCollateralAmountLiquidate(
         address collateral,
+        address debt,
         uint256 repayAmount
     ) public view returns (uint256) {
         require(collateral != address(0), "Invalid collateral");
@@ -287,7 +308,9 @@ contract MockDebtManager is Ownable {
         // repayAmount is in debt asset units, need to convert to collateral units
         // Apply bonus: collateral = repayAmount * (1 + bonus)
         uint256 bonus = (repayAmount * config.liquidationBonus) / 1e18;
-        return repayAmount + bonus;
+        uint256 value = ((repayAmount + bonus) * assetPrices[debt]) / 1e18;
+
+        return value * 1e18 / assetPrices[collateral];
     }
 
     /**

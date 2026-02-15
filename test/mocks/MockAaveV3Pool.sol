@@ -175,13 +175,15 @@ contract MockAaveV3Pool is Ownable {
 
         // Calculate fee
         uint256 fee = (amount * config.premiumBps) / 10000;
-        require(amount + fee > 0, "Fee calculation overflow");
+        uint256 amountOwed = amount + fee;
 
-        // Update reserve
-        assetReservement[asset] -= amount;
-
-        // Get token and transfer to receiver
+        // Get token
         IERC20 token = IERC20(asset);
+        
+        // ✅ Store balance BEFORE transfer
+        uint256 balanceBefore = token.balanceOf(address(this));
+
+        // Transfer to receiver
         require(
             token.transfer(receiverAddress, amount),
             "Transfer to receiver failed"
@@ -196,19 +198,22 @@ contract MockAaveV3Pool is Ownable {
             msg.sender,
             params
         );
-
-        // Verify repayment
-        uint256 amountOwed = amount + fee;
-        uint256 balanceAfter = token.balanceOf(address(this));
-
-        // Get previous balance before transfer
-        uint256 expectedBalance = assetReservement[asset] + amountOwed;
-
         require(success, "executeOperation returned false");
-        require(balanceAfter >= expectedBalance, "Flash loan not repaid");
 
-        // Update reserves
-        assetReservement[asset] += amountOwed;
+        // ✅ FIXED: Pull the repayment back from receiver
+        require(
+            token.transferFrom(receiverAddress, address(this), amountOwed),
+            "Flash loan repayment failed"
+        );
+
+        // ✅ Verify we got paid
+        uint256 balanceAfter = token.balanceOf(address(this));
+        require(
+            balanceAfter >= balanceBefore + fee,
+            "Insufficient repayment received"
+        );
+
+        // Update statistics
         totalFlashLoanAmount += amount;
         totalFlashLoanFees += fee;
         successfulFlashLoans++;

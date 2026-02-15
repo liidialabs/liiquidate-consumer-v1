@@ -42,43 +42,24 @@ contract MockChainlinkAutomationForwarder {
 
     // ========== RECEIVER MANAGEMENT ==========
 
-    /**
-     * @notice Trusts a receiver contract
-     * @param receiver The receiver contract address
-     */
     function trustReceiver(address receiver) external {
         require(receiver != address(0), "Invalid receiver");
         trustedReceivers[receiver] = true;
         emit ReceiverTrusted(receiver);
     }
 
-    /**
-     * @notice Removes trust from a receiver
-     * @param receiver The receiver contract address
-     */
     function untrustReceiver(address receiver) external {
         require(receiver != address(0), "Invalid receiver");
         trustedReceivers[receiver] = false;
         emit ReceiverUntrusted(receiver);
     }
 
-    /**
-     * @notice Checks if a receiver is trusted
-     * @param receiver The receiver address
-     * @return Whether the receiver is trusted
-     */
     function isTrusted(address receiver) external view returns (bool) {
         return trustedReceivers[receiver];
     }
 
     // ========== WORKFLOW MANAGEMENT ==========
 
-    /**
-     * @notice Creates a workflow
-     * @param workflowId The workflow ID
-     * @param workflowName The workflow name (10 bytes max)
-     * @param owner The workflow owner
-     */
     function createWorkflow(
         bytes32 workflowId,
         bytes10 workflowName,
@@ -96,11 +77,6 @@ contract MockChainlinkAutomationForwarder {
         emit WorkflowCreated(workflowId, owner, workflowName);
     }
 
-    /**
-     * @notice Gets workflow metadata
-     * @param workflowId The workflow ID
-     * @return The workflow metadata
-     */
     function getWorkflow(
         bytes32 workflowId
     ) external view returns (WorkflowMetadata memory) {
@@ -121,15 +97,17 @@ contract MockChainlinkAutomationForwarder {
         bytes32 workflowId,
         bytes10 workflowName,
         bytes calldata report
-    ) external returns (bool) {
+    ) public returns (bool) {
         require(receiver != address(0), "Invalid receiver");
         require(workflowId != bytes32(0), "Invalid workflow ID");
 
         totalReports++;
 
-        // Encode metadata
+        // Get workflow metadata
         WorkflowMetadata memory metadata = workflows[workflowId];
-        bytes memory encodedMetadata = abi.encode(
+        
+        // ✅ FIXED: Use abi.encodePacked instead of abi.encode
+        bytes memory encodedMetadata = abi.encodePacked(
             workflowId,
             workflowName,
             metadata.workflowOwner
@@ -149,37 +127,41 @@ contract MockChainlinkAutomationForwarder {
             failedReports++;
             emit ReportProcessed(workflowId, receiver, false, reason);
             return false;
+        } catch {
+            failedReports++;
+            emit ReportProcessed(workflowId, receiver, false, "Unknown error");
+            return false;
         }
     }
 
     /**
      * @notice Internal function to call receiver onReport
-     * @param receiver The receiver contract
-     * @param metadata Encoded workflow metadata
-     * @param report The report data
      */
     function _callReceiver(
         address receiver,
         bytes memory metadata,
         bytes calldata report
     ) external {
-        // This uses delegatecall pattern to simulate forwarder
-        (bool success, ) = receiver.call(
+        // Only allow calls from this contract
+        require(msg.sender == address(this), "Only self-calls allowed");
+        
+        (bool success, bytes memory returnData) = receiver.call(
             abi.encodeWithSignature("onReport(bytes,bytes)", metadata, report)
         );
 
-        require(success, "Receiver call failed");
+        if (!success) {
+            // Bubble up the revert reason
+            if (returnData.length > 0) {
+                assembly {
+                    revert(add(returnData, 32), mload(returnData))
+                }
+            }
+            revert("Receiver call failed");
+        }
     }
 
     // ========== BATCH OPERATIONS ==========
 
-    /**
-     * @notice Sends multiple reports in batch
-     * @param receivers Array of receiver addresses
-     * @param workflowIds Array of workflow IDs
-     * @param reports Array of report data
-     * @return successCount Number of successful reports
-     */
     function sendBatchReports(
         address[] calldata receivers,
         bytes32[] calldata workflowIds,
@@ -209,12 +191,6 @@ contract MockChainlinkAutomationForwarder {
 
     // ========== STATISTICS ==========
 
-    /**
-     * @notice Gets forwarder statistics
-     * @return total Total reports sent
-     * @return successful Successful reports
-     * @return failed Failed reports
-     */
     function getStats()
         external
         view
@@ -223,18 +199,11 @@ contract MockChainlinkAutomationForwarder {
         return (totalReports, successfulReports, failedReports);
     }
 
-    /**
-     * @notice Gets success rate as basis points
-     * @return Success rate (10000 = 100%)
-     */
     function getSuccessRate() external view returns (uint256) {
         if (totalReports == 0) return 0;
         return (successfulReports * 10000) / totalReports;
     }
 
-    /**
-     * @notice Resets statistics
-     */
     function resetStats() external {
         totalReports = 0;
         successfulReports = 0;
@@ -243,13 +212,6 @@ contract MockChainlinkAutomationForwarder {
 
     // ========== TESTING UTILITIES ==========
 
-    /**
-     * @notice Simulates a report with validation
-     * @param receiver The receiver to test
-     * @param metadata The metadata
-     * @param report The report data
-     * @return Whether the call would succeed
-     */
     function validateReport(
         address receiver,
         bytes calldata metadata,
@@ -266,11 +228,7 @@ contract MockChainlinkAutomationForwarder {
 
     /**
      * @notice Creates a test report payload
-     * @param workflowId The workflow ID
-     * @param owner The workflow owner
-     * @param reportData The actual report data
-     * @return encodedMetadata The encoded metadata
-     * @return reportPayload The report payload
+     * ✅ FIXED: Use abi.encodePacked
      */
     function createTestReport(
         bytes32 workflowId,
@@ -282,7 +240,8 @@ contract MockChainlinkAutomationForwarder {
         pure
         returns (bytes memory encodedMetadata, bytes memory reportPayload)
     {
-        encodedMetadata = abi.encode(workflowId, workflowName, owner);
+        // ✅ FIXED: Use abi.encodePacked
+        encodedMetadata = abi.encodePacked(workflowId, workflowName, owner);
         reportPayload = reportData;
     }
 }
