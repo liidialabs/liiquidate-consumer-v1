@@ -2,7 +2,6 @@
 pragma solidity ^0.8.20;
 
 import { Ownable } from "@openzeppelin/contracts/access/Ownable.sol";
-import { ILiquidationAdapter } from "./interfaces/adapter/ILiquidationAdapter.sol";
 
 contract AdapterRegistry is Ownable {
 
