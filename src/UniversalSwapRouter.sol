@@ -8,7 +8,7 @@ import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
  * @title UniversalSwapRouter
  * @notice Routes swaps across multiple DEX protocols
  */
-contract UniversalSwapRouter {
+contract UniversalSwapRouter is Ownable {
     /// @notice Protocol health tracking
     struct ProtocolHealth {
         uint256 consecutiveFailures;
@@ -39,6 +39,8 @@ contract UniversalSwapRouter {
 
     /// @notice Protocol priority for fallbacks
     bytes32[] public protocolPriority;
+
+    address[] public swapAdapters;
 
     /// @notice Global fallback configuration
     FallbackConfig public fallbackConfig;
@@ -80,26 +82,23 @@ contract UniversalSwapRouter {
         require(adapter != address(0), "Invalid adapter");
         bytes32 protocol = ISwapAdapter(adapter).protocolId();
         adapters[protocol] = adapter;
+        swapAdapters.push(adapter);
         emit AdapterRegistered(protocol, adapter);
     }
 
-    function removeAdapter(string memory protocol) external onlyOwner {
-        delete adapters[keccak256(protocol)];
+    function removeAdapter(bytes32 protocol) external onlyOwner {
+        delete adapters[protocol];
         emit AdapterRemoved(protocol);
     }
 
     function setProtocolPriority(
-        string[] calldata protocols
+        bytes32[] calldata protocols
     ) external onlyOwner {
         require(protocols.length > 0, "empty list");
 
-        bytes32[] memory convertedProtocols = new bytes32[](protocols.length);
-        for (uint256 i = 0; i < protocols.length; i++) {
-            convertedProtocols[i] = keccak256(abi.encodePacked(protocols[i]));
-        }
-
-        protocolPriority = convertedProtocols;
-        emit ProtocolPrioritySet(convertedProtocols);
+        protocolPriority = protocols;
+        
+        emit ProtocolPrioritySet(protocols);
     }
 
     function updateFallbackConfig(
@@ -112,12 +111,13 @@ contract UniversalSwapRouter {
         address collateralAsset,
         address debtAsset,
         uint256 collateralAmount,
-        uint256 minDebtAssetOut
+        uint256 minDebtAssetOut,
+        bytes32 loanProviderId
     )
         external
         returns (uint256 amountIn, uint256 amountOut, bytes32 usedProtocol)
     {
-        ISwapAdapter.MultiHopParams memory params = this._buildMultiHopParams(
+        ISwapAdapter.MultiHopParams memory params = _buildMultiHopParams(
             collateralAsset,
             debtAsset,
             collateralAmount,
@@ -126,31 +126,27 @@ contract UniversalSwapRouter {
 
         // get base protocol
         (bytes32 protocol, , ) = quoteBestProtocol(params);
-        // go with default if priority is not set
-        if (protocolPriority.length == 0) {
-            _executeWithDefault(protocol, params);
-        }
         // Loop through available adapters
-        _executeTryMultiple(protocol, params);
+        (amountIn, amountOut, usedProtocol) = _executeTryMultiple(protocol, params, loanProviderId);
     }
 
-    function resetCircuitBreaker(string memory protocol) external {
-        ProtocolHealth storage health = protocolHealth[keccak256(protocol)];
+    function resetCircuitBreaker(bytes32 protocol) external {
+        ProtocolHealth storage health = protocolHealth[protocol];
         health.isCircuitOpen = false;
         health.circuitOpenUntil = 0;
         health.consecutiveFailures = 0;
-        emit CircuitBreakerReset(keccak256(protocol));
+        emit CircuitBreakerReset(protocol);
     }
 
     function getProtocolHealth(
-        string memory protocol
+        bytes32 protocol
     ) external view returns (ProtocolHealth memory) {
-        return protocolHealth[keccak256(protocol)];
+        return protocolHealth[protocol];
     }
 
     // REDO
     function quoteBestProtocol(
-        ISwapAdapter.MultiHopParams calldata params
+        ISwapAdapter.MultiHopParams memory params
     )
         public
         view
@@ -196,55 +192,32 @@ contract UniversalSwapRouter {
             }
         }
 
-        require(bytes(bestProtocol).length > 0, "No valid quotes");
+        require(bestProtocol != bytes32(0), "No valid quotes");
     }
 
     // REDO
     function quoteSpecific(
-        string memory protocol,
+        bytes32 protocol,
         ISwapAdapter.MultiHopParams calldata params
     ) external view returns (uint256 amountIn, uint256 amountOut) {
         // Fetch adapter
-        address adapter = adapters[keccak256(protocol)];
+        address adapter = adapters[protocol];
         require(adapter != address(0), "Protocol not supported");
 
         return ISwapAdapter(adapter).quoteMultiHop(params);
     }
 
-    ///////////// INTERNAL FUNCTIONS ////////////////
-
-    function _executeWithDefault(
-        bytes32 _protocol,
-        ISwapAdapter.MultiHopParams calldata params
-    ) internal {
-        // get default adapter
-        address adapter = adapters[_protocol];
-        // checks
-        if (adapter == address(0)) return (0, 0, _protocol);
-        if (_isCircuitOpen(_protocol)) return (0, 0, _protocol);
-
-        // call
-        try ISwapAdapter(adapter).swapMultiHop(params) returns (
-            uint256 _amountIn,
-            uint256 _amountOut
-        ) {
-            emit MultiHopSwapExecuted(
-                msg.sender,
-                params.tokenIn,
-                params.tokenOut,
-                _amountIn,
-                _amountOut
-            );
-            return (_amountIn, _amountOut, _protocol);
-        } catch {
-            emit DefaultRouteFailed(_protocol);
-        }
+    function getSwapAdapters() external view returns (address[] memory) {
+        return swapAdapters;
     }
+
+    ///////////// INTERNAL FUNCTIONS ////////////////
 
     function _executeTryMultiple(
         bytes32 _protocol,
-        ISwapAdapter.MultiHopParams calldata params
-    ) internal {
+        ISwapAdapter.MultiHopParams memory params,
+        bytes32 loanProviderId
+    ) internal returns(uint256, uint256, bytes32) {
 
         for (uint256 i = 0; i < protocolPriority.length; i++) {
             bytes32 protocol = protocolPriority[i];
@@ -264,7 +237,7 @@ contract UniversalSwapRouter {
             }
 
             // Adjust slippage for fallback attempts
-            ISwapAdapter.MultiHopParams memory adjustedParams;
+            ISwapAdapter.MultiHopParams memory adjustedParams = params;
             if (i > 0) {
                 adjustedParams = _adjustSlippageForFallback(params, i);
             }
@@ -275,15 +248,15 @@ contract UniversalSwapRouter {
                 uint256 resultAmountIn,
                 uint256 resultAmountOut,
                 string memory reason
-            ) = _attemptSwap(protocol, adjustedParams);
+            ) = _attemptSwap(protocol, adjustedParams, loanProviderId);
 
             //  Handle response
             if (success) {
                 _recordSuccess(protocol);
                 emit MultiHopSwapExecuted(
                     protocol,
-                    params.path.tokens[0],
-                    params.path.tokens[params.path.tokens.length - 1],
+                    params.tokenIn,
+                    params.tokenOut,
                     resultAmountIn,
                     resultAmountOut
                 );
@@ -307,7 +280,8 @@ contract UniversalSwapRouter {
 
     function _attemptSwap(
         bytes32 protocol,
-        ISwapAdapter.MultiHopParams memory params
+        ISwapAdapter.MultiHopParams memory params,
+        bytes32 loanProviderId
     )
         internal
         returns (
@@ -328,7 +302,7 @@ contract UniversalSwapRouter {
 
         emit SwapAttempted(protocol, false, "Attempting");
 
-        try ISwapAdapter(adapter).swapMultiHop(params) returns (
+        try ISwapAdapter(adapter).swapMultiHop(params, loanProviderId) returns (
             uint256 resultAmountIn,
             uint256 resultAmountOut
         ) {
@@ -421,7 +395,7 @@ contract UniversalSwapRouter {
         address debtAsset,
         uint256 collateralAmount,
         uint256 minDebtAssetOut
-    ) internal pure returns (ISwapAdapter.MultiHopParams memory params) {
+    ) internal view returns (ISwapAdapter.MultiHopParams memory params) {
         params = ISwapAdapter.MultiHopParams({
             tokenIn: collateralAsset,
             tokenOut: debtAsset,
