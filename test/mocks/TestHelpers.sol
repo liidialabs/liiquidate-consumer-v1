@@ -338,10 +338,10 @@ contract TestHelpers is Test {
 
     /**
      * @notice Moves time forward
-     * @param seconds The number of seconds to advance
+     * @param _seconds The number of seconds to advance
      */
-    function moveTimeForward(uint256 seconds) internal {
-        vm.warp(block.timestamp + seconds);
+    function moveTimeForward(uint256 _seconds) internal {
+        vm.warp(block.timestamp + _seconds);
     }
 
     /**
