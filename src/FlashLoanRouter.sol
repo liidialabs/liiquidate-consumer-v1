@@ -3,16 +3,19 @@ pragma solidity ^0.8.20;
 
 import { IFlashLoan } from "./interfaces/flashloans/IFlashLoan.sol";
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
+import { LiquidationData } from "./types/DataTypes.sol";
 
 contract FlashLoanRouter is Ownable {
 
     mapping(bytes32 => address) public providers;
     mapping(address => uint256) private debtCovered;
     mapping(address => bool) private isRecorded;
+    mapping(uint256 => LiquidationData) private liquidationJobs;
 
     bytes32[] private providerPriority;
     address[] private debts;
     uint256 private callCount;
+    address private proxyAddress;
 
     /// EVENTS ///
 
@@ -22,6 +25,7 @@ contract FlashLoanRouter is Ownable {
     event FlashLoanRoutedOn(bytes32 provider);
     event FlashLoanExecuted(bytes32 provider);
     event FlashLoanFailed(bytes32 provider);
+    event ProxyAddressUpdated(address indexed previousProxy, address indexed newProxy);
 
     /// ERRORS ///
 
@@ -31,9 +35,15 @@ contract FlashLoanRouter is Ownable {
     error InvalidAmount();
     error InvalidData();
     error InvalidReport();
+    error CallerNotAuthorizedProxy();
 
     constructor() Ownable(msg.sender) {
         callCount = 0;
+    }
+
+    modifier onlyProxy() {
+        _onlyProxy();
+        _;
     }
 
     function addProvider(address provider) external onlyOwner {
@@ -58,13 +68,20 @@ contract FlashLoanRouter is Ownable {
         emit ProviderPrioritySet(providerIds);
     }
 
+    function setProxyAddress(address _proxyAddress) external onlyOwner {
+        if(_proxyAddress == address(0)) revert InvalidAddress();
+        address previousProxy = proxyAddress;
+        proxyAddress = _proxyAddress;
+        emit ProxyAddressUpdated(previousProxy, _proxyAddress);
+    }
+
     function flashLoan(
         address debtAsset,
         address collateralAsset,
         uint256 debtToCover,
         address targetContract,
         bytes calldata data
-    ) external returns(bool) {
+    ) external onlyProxy returns(bool) {
         if(providerPriority.length == 0) revert EmptyProviderArray();
         if(
             debtAsset == address(0) ||
@@ -91,6 +108,11 @@ contract FlashLoanRouter is Ownable {
                 targetContract,
                 data
             ) {
+                liquidationJobs[callCount] = LiquidationData({
+                    debtAsset: debtAsset,
+                    collateralAsset: collateralAsset,
+                    amount: debtToCover
+                });
                 emit FlashLoanExecuted(providerPriority[i]);
                 return true; // success
             } catch {
@@ -107,6 +129,10 @@ contract FlashLoanRouter is Ownable {
         return callCount;
     }
 
+    function getLiquidationJob(uint256 _callCount) external view returns(LiquidationData memory data) {
+        data = liquidationJobs[_callCount];
+    }
+
     function getProviderPriority() external view returns(bytes32[] memory list) {
         list = providerPriority;
     }
@@ -117,5 +143,11 @@ contract FlashLoanRouter is Ownable {
 
     function getDebtsCoveredAmount(address debt) external view returns(uint256 amount) {
         amount = debtCovered[debt];
+    }
+
+    ////// INTERNAL ///////
+
+    function _onlyProxy() internal {
+        if(msg.sender != proxyAddress) revert CallerNotAuthorizedProxy();
     }
 }
