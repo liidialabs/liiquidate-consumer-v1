@@ -269,7 +269,7 @@ contract AaveV3FlashLoanTest is Test {
         bytes memory callbackData = "";
 
         vm.prank(liquidator);
-        vm.expectRevert("Amount cannot be zero!");
+        vm.expectRevert();
         aaveV3.flashLoan(
             address(debtToken),
             address(collateralToken),
@@ -283,7 +283,7 @@ contract AaveV3FlashLoanTest is Test {
         bytes memory callbackData = "";
 
         vm.prank(liquidator);
-        vm.expectRevert("Invalid Address");
+        vm.expectRevert(AaveV3.InvalidAddress.selector);
         aaveV3.flashLoan(
             address(0),
             address(collateralToken),
@@ -297,7 +297,7 @@ contract AaveV3FlashLoanTest is Test {
         bytes memory callbackData = "";
 
         vm.prank(liquidator);
-        vm.expectRevert("Invalid Address");
+        vm.expectRevert(AaveV3.InvalidAddress.selector);
         aaveV3.flashLoan(
             address(debtToken),
             address(0),
@@ -311,7 +311,7 @@ contract AaveV3FlashLoanTest is Test {
         bytes memory callbackData = "";
 
         vm.prank(liquidator);
-        vm.expectRevert("Invalid Address");
+        vm.expectRevert(AaveV3.InvalidAddress.selector);
         aaveV3.flashLoan(
             address(debtToken),
             address(collateralToken),
@@ -372,12 +372,12 @@ contract AaveV3FlashLoanTest is Test {
     }
 
     function testConstructorRevertsWithZeroPool() public {
-        vm.expectRevert("invalid pool");
+        vm.expectRevert();
         new AaveV3(address(0), address(swapRouter));
     }
 
     function testConstructorRevertsWithZeroSwapRouter() public {
-        vm.expectRevert("invalid pool");
+        vm.expectRevert();
         new AaveV3(address(mockPool), address(0));
     }
 

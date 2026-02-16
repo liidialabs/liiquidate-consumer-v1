@@ -101,6 +101,8 @@ contract FlashLoanRouterTest is Test {
         aaveProvider = new MockFlashLoanProvider("AAVE_V3");
         uniswapProvider = new MockFlashLoanProvider("UNISWAP_V4");
         compoundProvider = new MockFlashLoanProvider("COMPOUND");
+
+        router.setProxyAddress(address(this));
     }
 
     // ========== PROVIDER MANAGEMENT TESTS ==========
@@ -193,7 +195,7 @@ contract FlashLoanRouterTest is Test {
 
     function test_SetProviderPriority_EmptyList_Reverts() public {
         bytes32[] memory empty = new bytes32[](0);
-        vm.expectRevert(bytes("empty list"));
+        vm.expectRevert(FlashLoanRouter.EmptyProviderArray.selector);
         router.setProviderPriority(empty);
     }
 
@@ -323,7 +325,7 @@ contract FlashLoanRouterTest is Test {
 
         bytes memory data = abi.encode("test");
 
-        vm.expectRevert(bytes("all flash loan providers failed"));
+        vm.expectRevert(bytes("All flash loan providers failed!"));
         router.flashLoan(
             debtAsset,
             collateralAsset,
@@ -492,7 +494,7 @@ contract FlashLoanRouterTest is Test {
         // First call fails
         aaveProvider.setShouldFail(true);
 
-        vm.expectRevert(bytes("all flash loan providers failed"));
+        vm.expectRevert(bytes("All flash loan providers failed!"));
         router.flashLoan(
             debtAsset,
             collateralAsset,

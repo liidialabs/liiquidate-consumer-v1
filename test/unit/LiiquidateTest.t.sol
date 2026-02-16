@@ -15,6 +15,7 @@ import { PoolIdLibrary, PoolId } from "@uniswap/v4-core/src/types/PoolId.sol";
 import {IHooks} from "@uniswap/v4-core/src/interfaces/IHooks.sol";
 import {Currency} from "@uniswap/v4-core/src/types/Currency.sol";
 import {MIN_SQRT_PRICE} from "../../src/types/Constants.sol";
+import {LiquidationData} from "../../src/types/DataTypes.sol";
 import {ISwapAdapter} from "../../src/interfaces/swapAdapter/ISwapAdapter.sol";
 import {MockDebtManager} from "../mocks/MockDebtManager.sol";
 import {MockDebtManagerAdapter} from "../mocks/MockDebtManagerAdapter.sol";
@@ -221,6 +222,9 @@ contract LiiquidateTest is Test {
             address(flashRouter),
             address(chainLinkForwarder)
         );
+
+        // set proxy address
+        flashRouter.setProxyAddress(address(liiquidate));
     }
 
     // ========== HELPER ============
@@ -334,6 +338,15 @@ contract LiiquidateTest is Test {
         assertTrue(success);
         assertEq(balanceBefore, 0);
         assertGt(balanceAfter, 0);
+
+        // 
+        uint256 callCount = flashRouter.getCallCount();
+        LiquidationData memory liqData = flashRouter.getLiquidationJob(callCount);
+
+        assertEq(callCount, 1);
+        assertEq(liqData.debtAsset, address(debtToken));
+        assertEq(liqData.collateralAsset, address(collateralToken));
+        assertEq(liqData.amount, DEBT_TO_COVER);
     }
 
     function testSuccessfulLiquidationMultipleAccounts() public {

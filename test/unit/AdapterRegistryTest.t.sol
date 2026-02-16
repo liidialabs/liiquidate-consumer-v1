@@ -60,7 +60,7 @@ contract AdapterRegistryTest is Test {
     }
 
     function test_RegisterAdapter_RejectZeroAddress() public {
-        vm.expectRevert(bytes("invalid adapter"));
+        vm.expectRevert(AdapterRegistry.InvalidAddress.selector);
         registry.registerAdapter(PROTOCOL_ID, address(0));
     }
 

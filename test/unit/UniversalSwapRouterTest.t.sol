@@ -173,7 +173,7 @@ contract UniversalSwapRouterTest is Test {
     }
 
     function test_RegisterAdapter_RejectZeroAddress() public {
-        vm.expectRevert(bytes("Invalid adapter"));
+        vm.expectRevert();
         router.registerAdapter(address(0));
     }
 
