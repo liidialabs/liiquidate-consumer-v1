@@ -212,8 +212,7 @@ contract UniswapV4Adapter is Ownable, ISwapAdapter, IUnlockCallback {
         address expectedOut = path.tokens[hopIndex + 1];
         
         if(
-            (token0 == expectedIn && token1 == expectedOut) ||
-            (token1 == expectedIn && token0 == expectedOut)
+            token0 != expectedIn || token1 != expectedOut
         ) revert TokenMismatch();
         
         // Check fee if provided
