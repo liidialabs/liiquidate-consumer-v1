@@ -86,6 +86,9 @@ contract DeployScript is Script {
             address(forwarder)
         );
 
+        // set proxyAdress
+        flashRouter.setProxyAddress(address(liiquidate));
+
         // Print addresses to stdout
         console.log("AdapterRegistry:", address(adapterRegistry));
         console.log("FlashLoanRouter:", address(flashRouter));
