@@ -58,9 +58,9 @@ contract RegisterAdapters is Script {
         vm.startBroadcast(deployerKey);
 
         // Assign correct address
-        if (block.chainid == 11_155_111) {
+        if (block.chainid == 111_55_111) {
             adapterToUse = forSepolia;
-        } else if (block.chainid == 84532) {
+        } else if (block.chainid == 84_532) {
             adapterToUse = forBaseSepolia;
         } else {
             adapterToUse = forAnvil;
