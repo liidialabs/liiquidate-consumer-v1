@@ -12,6 +12,12 @@ struct LiquidationParams {
     uint256 minAmountOut;   // slippage protection
 }
 
+struct LiquidationData {
+    address debtAsset;
+    address collateralAsset;
+    uint256 amount;
+}
+
 event LiquidationExecuted(
     string flashLoanProvider,
     address indexed targetContract,
