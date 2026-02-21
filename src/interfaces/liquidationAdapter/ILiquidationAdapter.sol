@@ -16,11 +16,11 @@ interface ILiquidationAdapter {
         uint256 debtUSD;
     }
 
-    struct LiquidationParams {
-        address collateralAsset;
-        address debtAsset;
-        uint256 maxDebtToCover;
-        uint256 expectedCollateralOut;
+    struct LiquidationStatus {
+        uint256 maxDebtToCover; // In USD
+        uint256 actualReturn;
+        uint256 expectedReturn;
+        uint256 expectedProfit;
         uint256 liquidationBonus; // bps
     }
 
@@ -37,11 +37,10 @@ interface ILiquidationAdapter {
         address user
     ) external returns (RiskState memory);
 
-    function getLiquidationParams(
+    function getLiquidationStatus(
         address user,
-        address collateralAsset,
-        address debtAsset
-    ) external returns (LiquidationParams memory);
+        address collateralAsset
+    ) external returns (LiquidationStatus memory);
 
     function buildExecutionPayload(
         address user,
