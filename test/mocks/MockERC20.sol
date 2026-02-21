@@ -47,7 +47,7 @@ contract MockERC20 is ERC20, Ownable {
      * @param to The address to receive the minted tokens
      * @param amount The amount of tokens to mint
      */
-    function mint(address to, uint256 amount) external onlyOwner {
+    function mint(address to, uint256 amount) external {
         require(to != address(0), "Cannot mint to zero address");
         require(amount > 0, "Amount must be greater than zero");
         _mint(to, amount);
@@ -71,7 +71,7 @@ contract MockERC20 is ERC20, Ownable {
      * @param from The address to burn tokens from
      * @param amount The amount of tokens to burn
      */
-    function burn(address from, uint256 amount) external onlyOwner {
+    function burn(address from, uint256 amount) external {
         require(from != address(0), "Cannot burn from zero address");
         require(amount > 0, "Amount must be greater than zero");
         require(balanceOf(from) >= amount, "Insufficient balance to burn");
