@@ -6,7 +6,6 @@ import {AaveV3} from "../../src/flashloans/AaveV3.sol";
 import {UniswapV4Adapter} from "../../src/swappers/UniswapV4Adapter.sol";
 import {MockAaveV3Pool} from "../mocks/MockAaveV3Pool.sol";
 import {MockERC20} from "../mocks/MockERC20.sol";
-import {TestHelpers} from "../mocks/TestHelpers.sol";
 import {UniversalSwapRouter} from "../../src/UniversalSwapRouter.sol";
 import {LiquidationParams} from "../../src/types/DataTypes.sol";
 import {PoolKey} from "@uniswap/v4-core/src/types/PoolKey.sol";
