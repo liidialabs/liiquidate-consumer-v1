@@ -8,7 +8,6 @@ import {Currency} from "@uniswap/v4-core/src/types/Currency.sol";
 import {UniswapV4Adapter} from "../../src/swappers/UniswapV4Adapter.sol";
 import {MockUniswapV4PoolManager} from "../mocks/MockUniswapV4PoolManager.sol";
 import {MockERC20} from "../mocks/MockERC20.sol";
-import {TestHelpers} from "../mocks/TestHelpers.sol";
 import {ISwapAdapter} from "../../src/interfaces/swapAdapter/ISwapAdapter.sol";
 import {MIN_SQRT_PRICE} from "../../src/types/Constants.sol";
 
