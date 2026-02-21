@@ -8,7 +8,6 @@ import {MockUniswapV4PoolManager} from "../mocks/MockUniswapV4PoolManager.sol";
 import {MockDebtManager} from "../mocks/MockDebtManager.sol";
 import {MockDebtManagerAdapter} from "../mocks/MockDebtManagerAdapter.sol";
 import {MockERC20} from "../mocks/MockERC20.sol";
-import {TestHelpers} from "../mocks/TestHelpers.sol";
 import {UniversalSwapRouter} from "../../src/UniversalSwapRouter.sol";
 import {LiquidationParams} from "../../src/types/DataTypes.sol";
 import { ILiquidationAdapter } from "../../src/interfaces/liquidationAdapter/ILiquidationAdapter.sol";
