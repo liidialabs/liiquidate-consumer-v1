@@ -13,6 +13,7 @@ contract MockDebtManagerAdapter is ILiquidationAdapter {
     uint256 private constant BASE_PRECISION = 1e18;
     uint256 private constant PERCENT_PRECISION = 1e4;
     uint256 private constant CLOSE_FACTOR = 0.5e4;
+    uint256 private constant EST_DROP_TO = 0.9e4; // 90%
     
     // Precomputed: keccak256("LIILEND_V1")
     bytes32 private PROTOCOL_HASH;
@@ -47,11 +48,10 @@ contract MockDebtManagerAdapter is ILiquidationAdapter {
         });
     }
 
-    function getLiquidationParams(
+    function getLiquidationStatus(
         address user,
-        address collateralAsset,
-        address debtAsset
-    ) external override returns (LiquidationParams memory lp) {
+        address collateralAsset
+    ) external override returns (LiquidationStatus memory lp) {
         (
             ,
             uint256 debtBase,
@@ -66,11 +66,15 @@ contract MockDebtManagerAdapter is ILiquidationAdapter {
         uint256 liquidationBonus = debtManager.getLiquidationBonus(collateralAsset);
         liquidationBonus = liquidationBonus * PERCENT_PRECISION / BASE_PRECISION;
 
-        lp = LiquidationParams({
-            collateralAsset: collateralAsset,
-            debtAsset: debtAsset,
+        uint256 bonus = maxDebtToCover *  liquidationBonus / PERCENT_PRECISION;
+        uint256 maxReturn = maxDebtToCover + bonus;
+        uint256 minReturn = maxReturn * EST_DROP_TO / PERCENT_PRECISION; // expect a 90% drop due to fees (flashloan + swap) & slippage
+
+        lp = LiquidationStatus({
             maxDebtToCover: maxDebtToCover,
-            expectedCollateralOut: 0, // computed off-chain / later step
+            actualReturn: maxReturn,
+            expectedReturn: minReturn,
+            expectedProfit: minReturn - maxDebtToCover,
             liquidationBonus: liquidationBonus
         });
     }
