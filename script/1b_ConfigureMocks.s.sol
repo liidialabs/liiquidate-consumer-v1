@@ -29,9 +29,6 @@ contract ConfigureMocks is Script {
     MockERC20 USDC;
     MockERC20 WETH;
 
-    // Addresses for the deployed contracts
-    address private uniswapV4AdapaterAddress = 0x000000000000000000000000000000000000dEaD; // Replace with actual
-
     // Initial liquidity amounts for the mock pools
     uint256 constant INITIAL_USDC_BALANCE = 1_000_000e6; // 1 million USDC with 6 decimals
     uint256 constant INITIAL_WETH_BALANCE = 1_000_000e18; // 1 million WETH with 18 decimals
@@ -41,26 +38,20 @@ contract ConfigureMocks is Script {
     function run() public {
         // deploy helper config
         helperConfig = new HelperConfig();
-        (
-            ,
-            address aaveV3PoolAddress,
-            address uniswapV4PoolAddress,
-            uint256 deployerKey
-        ) = helperConfig.activeNetworkConfig();
 
-        vm.startBroadcast(deployerKey);
+        vm.startBroadcast(helperConfig.deployerKey());
 
         // deploy WETH/USD mock price feed, initial price $2000
         priceFeed = new MockV3Aggregator(8, 2000e8, "WETH/USD");
 
         // deploy mock ERC20 tokens
-        USDC = new MockERC20("USD Coin", "USDC", 6);
-        WETH = new MockERC20("Wrapped Ether", "WETH", 18);
+        USDC = MockERC20(helperConfig.USDC());
+        WETH = MockERC20(helperConfig.WETH());
 
         // Create contract instances
-        aaveV3Pool = MockAaveV3Pool(payable(aaveV3PoolAddress));
-        uniswapV4Pool = MockUniswapV4PoolManager(payable(uniswapV4PoolAddress));
-        uniswapAdapter = UniswapV4Adapter(payable(uniswapV4AdapaterAddress));
+        aaveV3Pool = MockAaveV3Pool(payable(helperConfig.aaveV3PoolAddress()));
+        uniswapV4Pool = MockUniswapV4PoolManager(payable(helperConfig.uniswapV4PoolAddress()));
+        uniswapAdapter = UniswapV4Adapter(payable(helperConfig.uniswapV4AdapterAddress()));
 
         // Aave V3
         _configureAaveV3Pool(aaveV3Pool);
@@ -68,9 +59,8 @@ contract ConfigureMocks is Script {
         _configureUniswapV4Pool(uniswapV4Pool);
 
         /// LOGS
+        console2.log("Completed configuration of mock contracts:");
         console2.log("Mock WETH/USD price feed address:", address(priceFeed));
-        console2.log("Mock USDC address:", address(USDC));
-        console2.log("Mock WETH address:", address(WETH));
 
         vm.stopBroadcast();
 
@@ -89,6 +79,8 @@ contract ConfigureMocks is Script {
         _aaveV3Pool.setAssetSupported(address(WETH), true);
         _aaveV3Pool.setAssetReservement(address(WETH), INITIAL_WETH_BALANCE);
         WETH.mint(address(aaveV3Pool), INITIAL_WETH_BALANCE);
+
+        console2.log("Configured MockAaveV3Pool with USDC and WETH support");
     }
 
     ////////// CONFIGURE UNISWAP V4 MOCK POOL ///////////
@@ -138,6 +130,8 @@ contract ConfigureMocks is Script {
             poolData,
             fees
         );
+
+        console2.log("Configured MockUniswapV4Pool with WETH/USDC pool and registered swap path in adapter");
     }
 
 }

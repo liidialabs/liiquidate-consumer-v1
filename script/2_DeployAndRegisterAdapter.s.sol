@@ -15,24 +15,19 @@ contract DeployAndRegisterAdapter is Script {
     AdapterRegistry adapterRegistry;
     HelperConfig helperConfig;
 
-    address private LiidiaBorrowAddress = address(1); // Replace with actual LiidiaBorrow address
-    address private AdapterRegistryAddress = address(1); // Replace with actual AdapterRegistry address
-
     function run() public {
         // get deployer key
         helperConfig = new HelperConfig();
-        (,,, uint256 deployerKey) = helperConfig.activeNetworkConfig();
 
-        vm.startBroadcast(deployerKey);
+        vm.startBroadcast(helperConfig.deployerKey());
 
         // Create contract instances
-        adapterRegistry = AdapterRegistry(AdapterRegistryAddress);
+        adapterRegistry = AdapterRegistry(helperConfig.adapterRegistryAddress());
 
         // deploy LiiBorrowV1Adapter 
-        liiBorrowV1Adapter = new LiiBorrowV1Adapter(LiidiaBorrowAddress);
+        liiBorrowV1Adapter = new LiiBorrowV1Adapter(helperConfig.debtManagerAddress());
         // register
         adapterRegistry.registerAdapter(
-            liiBorrowV1Adapter.protocol(), 
             address(liiBorrowV1Adapter)
         );
         

@@ -33,13 +33,12 @@ contract DeployScript is Script {
         (
             address forwarderAddress,
             address aaveV3PoolAddress,
-            address uniswapV4PoolAddress,
-            uint256 deployerKey
+            address uniswapV4PoolAddress
         ) = helperConfig.activeNetworkConfig();
 
         // deploy
 
-        vm.startBroadcast(deployerKey);
+        vm.startBroadcast(helperConfig.deployerKey());
 
         ////// DEPLOY CORE CONTRACTS //////
 
