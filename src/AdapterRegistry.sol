@@ -2,53 +2,58 @@
 pragma solidity ^0.8.20;
 
 import { Ownable } from "@openzeppelin/contracts/access/Ownable.sol";
+import { ILiquidationAdapter } from "./interfaces/liquidationAdapter/ILiquidationAdapter.sol";
 
 contract AdapterRegistry is Ownable {
 
     // protocol-name-in-bytes -> protocol address
-    mapping(bytes32 => address) private adapters;
+    mapping(string => address) private adapters;
 
     /// EVENTS ///
 
     event AdapterRegistered(
-        bytes32 protocol,
+        string protocol,
         address adapter
     );
 
     event AdapterRemoved(
-        bytes32 protocol
+        string protocol
     );
 
     /// ERRORS ///
 
     error InvalidAddress();
     error InvalidProtocol();
+    error AlreadyRegistered();
 
     constructor() Ownable(msg.sender) {}
 
     function registerAdapter(
-        bytes32 protocol,
         address adapter
     ) external onlyOwner {
         if(adapter == address(0)) revert InvalidAddress();
-        if(protocol == bytes32(0)) revert InvalidProtocol();
 
-        adapters[protocol] = adapter;
-        emit AdapterRegistered(protocol, adapter);
+        ILiquidationAdapter liquidationAdapter = ILiquidationAdapter(adapter);
+        string memory protocolName = liquidationAdapter.getProtocolName();
+
+        if(adapters[protocolName] != address(0)) revert AlreadyRegistered();
+
+        adapters[protocolName] = adapter;
+        emit AdapterRegistered(protocolName, adapter);
     }
 
     function removeAdapter(
-        bytes32 protocol
+        string memory protocol
     ) external onlyOwner {
-        if(protocol == bytes32(0)) revert InvalidProtocol();
+        if(bytes(protocol).length == 0) revert InvalidProtocol();
         delete adapters[protocol];
         emit AdapterRemoved(protocol);
     }
 
     function getAdapter(
-        bytes32 protocol
+        string memory protocol
     ) external view returns (address) {
-        if(protocol == bytes32(0)) revert InvalidProtocol();
+        if(bytes(protocol).length == 0) revert InvalidProtocol();
         return adapters[protocol];
     }
 }
