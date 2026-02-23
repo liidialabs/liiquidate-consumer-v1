@@ -15,9 +15,6 @@ contract LiiBorrowV1Adapter is ILiquidationAdapter {
     uint256 private constant CLOSE_FACTOR = 0.5e4; // 50%
     uint256 private constant EST_DROP_TO = 0.9e4; // 90%
     
-    // Precomputed: keccak256("LIIBORROW_V1")
-    bytes32 private constant PROTOCOL_HASH = 0x754fdeb1bd07dcda66d4f48649788b9a02bd2fcc89459be357483781d8b2bd6f;
-
     error InvalidAddress();
     error InvalidAmount();
 
@@ -27,12 +24,12 @@ contract LiiBorrowV1Adapter is ILiquidationAdapter {
         debtManager = IDebtManager(_debtManager);
     }
 
-    function protocol() external override pure returns (bytes32) {
-        return PROTOCOL_HASH;
+    function getProtocolName() external override pure returns (string memory) {
+        return "LIIBORROW_v1";
     }
 
-    function name() external override pure returns (string memory) {
-        return "LIIBORROW_V1";
+    function getAdapterAddress() external override view returns (address) {
+        return address(this);
     }
 
     function getRiskState(
