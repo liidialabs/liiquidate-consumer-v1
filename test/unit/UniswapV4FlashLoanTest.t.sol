@@ -68,7 +68,7 @@ contract UniswapV4FlashLoanTest is Test {
         debtManager = new MockDebtManager();
         debtManagerAdapter = new MockDebtManagerAdapter(
             address(debtManager),
-            keccak256("DebtManager1")
+            "DebtManager1"
         );
 
         // 
