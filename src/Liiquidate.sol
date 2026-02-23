@@ -11,7 +11,7 @@ import { FlashLoanRouter } from "./FlashLoanRouter.sol";
 /// @dev ...
 contract Liiquidate is ReceiverTemplate {
     struct LiquidationReport {
-        bytes32 protocol;
+        string protocol;
         address user;
         address collateralAsset;
         address debtAsset;
@@ -24,7 +24,7 @@ contract Liiquidate is ReceiverTemplate {
     /// EVENTS ///
 
     event LiquidationExecuted(
-        bytes32 indexed protocol,
+        string indexed protocol,
         address indexed user,
         address indexed adapter,
         bool success
@@ -69,7 +69,9 @@ contract Liiquidate is ReceiverTemplate {
         LiquidationReport memory job
     ) internal {
         // Get adapter address
-        address adapterAddr = registry.getAdapter(job.protocol);
+        string memory protocolName = job.protocol;
+        address adapterAddr = registry.getAdapter(protocolName);
+
         // Check not zero address
         if (adapterAddr == address(0)) {
             emit LiquidationExecuted(
@@ -86,7 +88,7 @@ contract Liiquidate is ReceiverTemplate {
             job.collateralAsset == address(0) ||
             job.debtAsset == address(0)
         ) revert InvalidAddress();
-        if(job.protocol == bytes32(0)) revert InvalidProtocol();
+        if(bytes(job.protocol).length == 0) revert InvalidProtocol();
         if(job.debtToCover == 0) revert InvalidAmount();
 
         // Instantiate adapter
