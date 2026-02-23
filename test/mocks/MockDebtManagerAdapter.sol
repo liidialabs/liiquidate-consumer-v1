@@ -14,26 +14,25 @@ contract MockDebtManagerAdapter is ILiquidationAdapter {
     uint256 private constant PERCENT_PRECISION = 1e4;
     uint256 private constant CLOSE_FACTOR = 0.5e4;
     uint256 private constant EST_DROP_TO = 0.9e4; // 90%
-    
-    // Precomputed: keccak256("LIILEND_V1")
-    bytes32 private PROTOCOL_HASH;
 
-    constructor(address _debtManager, bytes32 _protocol) {
+    string private protocolName;
+
+    constructor(address _debtManager, string memory _protocolName) {
         debtManager = MockDebtManager(_debtManager);
-        PROTOCOL_HASH = _protocol;
+        protocolName = _protocolName;
     }
 
-    function protocol() external override view returns (bytes32) {
-        return PROTOCOL_HASH;
+    function getProtocolName() external override view returns (string memory) {
+        return protocolName;
     }
 
-    function name() external override pure returns (string memory) {
-        return "LiiLend V1 Adapter";
+    function getAdapterAddress() external override view returns (address) {
+        return address(this);
     }
 
     function getRiskState(
         address user
-    ) external override returns (RiskState memory rs) {
+    ) external override view returns (RiskState memory rs) {
         (
             uint256 collateralBase,
             uint256 debtBase,
@@ -51,7 +50,7 @@ contract MockDebtManagerAdapter is ILiquidationAdapter {
     function getLiquidationStatus(
         address user,
         address collateralAsset
-    ) external override returns (LiquidationStatus memory lp) {
+    ) external override view returns (LiquidationStatus memory lp) {
         (
             ,
             uint256 debtBase,

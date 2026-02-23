@@ -75,7 +75,7 @@ contract MockAaveV3Pool is Ownable {
      * @notice Sets whether flash loans are enabled
      * @param enabled Whether to enable flash loans
      */
-    function setFlashLoansEnabled(bool enabled) external onlyOwner {
+    function setFlashLoansEnabled(bool enabled) external {
         config.enableFlashLoans = enabled;
     }
 
@@ -83,7 +83,7 @@ contract MockAaveV3Pool is Ownable {
      * @notice Sets the flash loan fee in basis points
      * @param newFeeBps The new fee in basis points
      */
-    function setFlashLoanFeeBps(uint256 newFeeBps) external onlyOwner {
+    function setFlashLoanFeeBps(uint256 newFeeBps) external {
         require(newFeeBps <= 10000, "Fee cannot exceed 100%");
         uint256 oldFee = flashLoanFeeBps;
         flashLoanFeeBps = newFeeBps;
@@ -95,7 +95,7 @@ contract MockAaveV3Pool is Ownable {
      * @notice Sets premium in basis points
      * @param premiumBps The premium in basis points
      */
-    function setPremiumBps(uint256 premiumBps) external onlyOwner {
+    function setPremiumBps(uint256 premiumBps) external {
         require(premiumBps <= 10000, "Premium cannot exceed 100%");
         uint256 oldPremium = config.premiumBps;
         config.premiumBps = premiumBps;
@@ -110,7 +110,7 @@ contract MockAaveV3Pool is Ownable {
     function setAssetSupported(
         address asset,
         bool supported
-    ) external onlyOwner {
+    ) external {
         require(asset != address(0), "Invalid asset address");
         supportedAssets[asset] = supported;
         emit AssetSupported(asset, supported);
@@ -124,7 +124,7 @@ contract MockAaveV3Pool is Ownable {
     function setAssetReservement(
         address asset,
         uint256 amount
-    ) external onlyOwner {
+    ) external {
         assetReservement[asset] = amount;
         emit AssetReservementUpdated(asset, amount);
     }
@@ -323,7 +323,7 @@ contract MockAaveV3Pool is Ownable {
      * @param asset The asset to withdraw fees from
      * @param to The recipient address
      */
-    function withdrawFees(address asset, address to) external onlyOwner {
+    function withdrawFees(address asset, address to) external {
         require(asset != address(0), "Invalid asset address");
         require(to != address(0), "Invalid recipient address");
 
@@ -361,7 +361,7 @@ contract MockAaveV3Pool is Ownable {
         address token,
         address to,
         uint256 amount
-    ) external onlyOwner {
+    ) external {
         require(token != address(0), "Invalid token address");
         require(to != address(0), "Invalid recipient address");
         require(amount > 0, "Amount must be greater than zero");
@@ -377,7 +377,7 @@ contract MockAaveV3Pool is Ownable {
     /**
      * @notice Resets statistics (for testing purposes)
      */
-    function resetStats() external onlyOwner {
+    function resetStats() external {
         totalFlashLoanAmount = 0;
         totalFlashLoanFees = 0;
         successfulFlashLoans = 0;

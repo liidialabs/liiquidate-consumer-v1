@@ -218,8 +218,8 @@ contract MockV3Aggregator is AggregatorV3Interface {
             answeredInRound: _latestRoundId
         });
 
-        emit NewRound(_latestRoundId, msg.sender, ts);
         emit AnswerUpdated(answer, _latestRoundId, ts);
+        emit NewRound(_latestRoundId, msg.sender, ts);
     }
 
     function _getRoundData(uint80 roundId_)
