@@ -1,221 +1,87 @@
-.PHONY: help install build test test-unit test-fuzz test-integration coverage clean forge-format lint gas-report all update-deps
+-include .env
 
-# Colors for output
-BLUE=\033[0;34m
-GREEN=\033[0;32m
-YELLOW=\033[1;33m
-RED=\033[0;31m
-NC=\033[0m # No Color
+.PHONY: all test clean deploy fund help install snapshot format anvil size
 
-# Default target
-help:
-	@echo "$(BLUE)Liiquidate - Liquidation Protocol Makefile$(NC)"
-	@echo ""
-	@echo "$(GREEN)Available Commands:$(NC)"
-	@echo "  $(YELLOW)make install$(NC)           - Install all dependencies (Foundry, Node, Submodules)"
-	@echo "  $(YELLOW)make install-foundry$(NC)   - Install Foundry toolkit"
-	@echo "  $(YELLOW)make install-deps$(NC)      - Install project dependencies (npm + git submodules)"
-	@echo "  $(YELLOW)make build$(NC)             - Build Solidity contracts"
-	@echo "  $(YELLOW)make test$(NC)              - Run all tests (unit + fuzz)"
-	@echo "  $(YELLOW)make test-unit$(NC)         - Run unit tests only"
-	@echo "  $(YELLOW)make test-fuzz$(NC)         - Run fuzz tests (1000 runs)"
-	@echo "  $(YELLOW)make test-fuzz-deep$(NC)    - Run fuzz tests (10000 runs) for deep fuzzing"
-	@echo "  $(YELLOW)make test-integration$(NC)  - Run integration tests"
-	@echo "  $(YELLOW)make test-specific$(NC)     - Run specific test: make test-specific FILE=path/to/test.sol"
-	@echo "  $(YELLOW)make coverage$(NC)          - Generate code coverage report"
-	@echo "  $(YELLOW)make gas-report$(NC)        - Generate gas usage report"
-	@echo "  $(YELLOW)make format$(NC)            - Format Solidity code"
-	@echo "  $(YELLOW)make lint$(NC)              - Lint Solidity code"
-	@echo "  $(YELLOW)make clean$(NC)             - Clean build artifacts and cache"
-	@echo "  $(YELLOW)make verify$(NC)            - Verify all contracts compile"
-	@echo "  $(YELLOW)make update-deps$(NC)       - Update all dependencies"
-	@echo "  $(YELLOW)make all$(NC)               - Install dependencies, build, and run all tests"
-	@echo ""
+DEFAULT_ANVIL_KEY := 0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80
 
-# ============================================================
-# INSTALLATION TARGETS
-# ============================================================
+all: clean remove install update build
 
-install: install-foundry install-deps
-	@echo "$(GREEN)✓ All dependencies installed successfully$(NC)"
+# Clean the repo
+clean  :; forge clean
 
-install-foundry:
-	@echo "$(BLUE)Installing Foundry...$(NC)"
-	@command -v forge >/dev/null 2>&1 || { \
-		echo "$(YELLOW)Foundry not found. Installing...$(NC)"; \
-		curl -L https://foundry.paradigm.xyz | bash; \
-		$$HOME/.foundry/bin/foundryup; \
-	} || (echo "$(RED)Foundry installation failed$(NC)" && exit 1)
-	@echo "$(GREEN)✓ Foundry installed$(NC)"
+# Remove modules
+remove :; rm -rf .gitmodules && rm -rf .git/modules/* && rm -rf lib && touch .gitmodules && git add . && git commit -m "modules"
 
-install-deps: update-submodules
-	@echo "$(BLUE)Installing npm dependencies...$(NC)"
-	@command -v npm >/dev/null 2>&1 || { \
-		echo "$(RED)npm not found. Please install Node.js$(NC)"; \
-		exit 1; \
-	}
-	@npm install || (echo "$(RED)npm install failed$(NC)" && exit 1)
-	@echo "$(GREEN)✓ Dependencies installed$(NC)"
+install :; forge install cyfrin/foundry-devops@0.2.2 --no-commit && forge install foundry-rs/forge-std@v1.8.2 --no-commit && forge install openzeppelin/openzeppelin-contracts@v5.0.2 --no-commit
 
-update-submodules:
-	@echo "$(BLUE)Updating git submodules...$(NC)"
-	@git submodule update --init --recursive || (echo "$(RED)Submodule update failed$(NC)" && exit 1)
-	@echo "$(GREEN)✓ Git submodules updated$(NC)"
+# Update Dependencies
+update:; forge update
 
-update-deps: update-submodules
-	@echo "$(BLUE)Updating dependencies...$(NC)"
-	@npm update || true
-	@echo "$(GREEN)✓ Dependencies updated$(NC)"
+build:; forge build
 
-# ============================================================
-# BUILD TARGETS
-# ============================================================
+test :; forge test 
 
-build: verify
-	@echo "$(BLUE)Building contracts...$(NC)"
-	@forge build --optimize --optimizer-runs 200 2>&1 | tee build.log || (echo "$(RED)Build failed$(NC)" && exit 1)
-	@echo "$(GREEN)✓ Build successful$(NC)"
+size:; forge build --sizes
 
-verify:
-	@echo "$(BLUE)Verifying contracts compile...$(NC)"
-	@forge build --optimize --optimizer-runs 200 > /dev/null 2>&1 || (echo "$(RED)Compilation failed$(NC)" && exit 1)
-	@echo "$(GREEN)✓ All contracts verified$(NC)"
+snapshot :; forge snapshot
 
-# ============================================================
-# TEST TARGETS
-# ============================================================
+format :; forge fmt
 
-test: test-unit test-fuzz
-	@echo "$(GREEN)✓ All tests passed$(NC)"
+coverage :; forge coverage
 
-test-unit:
-	@echo "$(BLUE)Running unit tests...$(NC)"
-	@forge test --match-path "test/unit/*.sol" -v 2>&1 | tee test-unit.log || (echo "$(RED)Unit tests failed$(NC)" && exit 1)
-	@echo "$(GREEN)✓ Unit tests passed$(NC)"
+coverage-report :; forge coverage --report lcov && genhtml lcov.info -o coverage && cd coverage && python3 -m http.server 8000
 
-test-fuzz:
-	@echo "$(BLUE)Running fuzz tests (1000 runs)...$(NC)"
-	@forge test --match-path "test/fuzz/*.sol" --fuzz-runs 1000 -v 2>&1 | tee test-fuzz.log || (echo "$(RED)Fuzz tests failed$(NC)" && exit 1)
-	@echo "$(GREEN)✓ Fuzz tests passed$(NC)"
+anvil :; anvil -m 'test test test test test test test test test test test junk' --steps-tracing --block-time 1
 
-test-fuzz-deep:
-	@echo "$(BLUE)Running deep fuzz tests (10000 runs)...$(NC)"
-	@forge test --match-path "test/fuzz/*.sol" --fuzz-runs 10000 -v 2>&1 | tee test-fuzz-deep.log || (echo "$(RED)Deep fuzz tests failed$(NC)" && exit 1)
-	@echo "$(GREEN)✓ Deep fuzz tests passed$(NC)"
+# NETWORK_ARGS := --rpc-url http://localhost:8545 --private-key $(DEFAULT_ANVIL_KEY) --broadcast -vvvv
+NETWORK_ARGS := --rpc-url $(SEPOLIA_RPC_URL) --private-key $(PRIVATE_KEY_USER) --broadcast -vvvv
 
-test-integration:
-	@echo "$(BLUE)Running integration tests...$(NC)"
-	@forge test --match-path "test/fuzz/IntegrationFuzz.t.sol" -v 2>&1 | tee test-integration.log || (echo "$(RED)Integration tests failed$(NC)" && exit 1)
-	@echo "$(GREEN)✓ Integration tests passed$(NC)"
+# Set NETWORK_ARGS based on the network specified in ARGS for deployment
+# make deploy ARGS="--network sepolia"
+ifeq ($(findstring --network sepolia,$(ARGS)),--network sepolia)
+	NETWORK_ARGS := --rpc-url $(SEPOLIA_RPC_URL) --private-key $(PRIVATE_KEY_DEPLOYER) --broadcast --gas-price 50000000000 --slow --verify --etherscan-api-key $(ETHERSCAN_API_KEY) -vvvv
+endif
 
-test-specific:
-	@if [ -z "$(FILE)" ]; then \
-		echo "$(RED)Error: FILE not specified$(NC)"; \
-		echo "Usage: make test-specific FILE=test/unit/AdapterRegistryTest.t.sol"; \
-		exit 1; \
-	fi
-	@echo "$(BLUE)Running specific test: $(FILE)...$(NC)"
-	@forge test --match-path "$(FILE)" -v 2>&1 | tee test-specific.log || (echo "$(RED)Test failed$(NC)" && exit 1)
-	@echo "$(GREEN)✓ Test passed$(NC)"
+ifeq ($(findstring --network mainnet,$(ARGS)),--network mainnet)
+	NETWORK_ARGS := --rpc-url $(MAINNET_RPC_URL) --private-key $(PRIVATE_KEY_DEPLOYER) --broadcast --verify --etherscan-api-key $(ETHERSCAN_API_KEY) -vvvv
+endif
 
-# ============================================================
-# CODE ANALYSIS TARGETS
-# ============================================================
+# quick deploy and interaction scripts for testnet testing
 
-coverage:
-	@echo "$(BLUE)Generating code coverage...$(NC)"
-	@forge coverage --report lcov 2>&1 | tee coverage.log || (echo "$(RED)Coverage generation failed$(NC)" && exit 1)
-	@echo "$(GREEN)✓ Coverage report generated: coverage.lcov$(NC)"
+deploy-script:
+	@forge script script/1a_DeployScript.s.sol:DeployScript $(NETWORK_ARGS)
 
-gas-report:
-	@echo "$(BLUE)Generating gas report...$(NC)"
-	@FOUNDRY_GAS_REPORTS=true forge test --fuzz-runs 100 2>&1 | tee gas-report.log || true
-	@echo "$(GREEN)✓ Gas report generated: gas-report.log$(NC)"
+deploy-configs:
+	@forge script script/1b_ConfigureMocks.s.sol:ConfigureMocks $(NETWORK_ARGS)
 
-# ============================================================
-# CODE FORMATTING & LINTING
-# ============================================================
+deploy-adapters:
+	@forge script script/2_DeployAndRegisterAdapter.s.sol:DeployAndRegisterAdapter $(NETWORK_ARGS)
 
-format:
-	@echo "$(BLUE)Formatting Solidity code...$(NC)"
-	@if command -v prettier >/dev/null 2>&1; then \
-		prettier --write "src/**/*.sol" "test/**/*.sol"; \
-		echo "$(GREEN)✓ Code formatted with Prettier$(NC)"; \
-	else \
-		echo "$(YELLOW)Prettier not found, using forge fmt...$(NC)"; \
-		forge fmt; \
-	fi
+supply: 
+	@forge script script/3_SupplyToLiidia.s.sol:SupplyToLiidia $(NETWORK_ARGS)
 
-lint:
-	@echo "$(BLUE)Linting Solidity code...$(NC)"
-	@if command -v solhint >/dev/null 2>&1; then \
-		solhint "src/**/*.sol" "test/**/*.sol" || true; \
-	else \
-		echo "$(YELLOW)Solhint not found. Install with: npm install -g solhint$(NC)"; \
-	fi
-	@echo "$(GREEN)✓ Linting complete$(NC)"
+borrow:
+	@forge script script/4_BorrowFromLiidia.s.sol:BorrowFromLiidia $(NETWORK_ARGS)
 
-# ============================================================
-# HOUSEKEEPING TARGETS
-# ============================================================
+drop-price:
+	@forge script script/5_DropAssetPrices.s.sol:DropAssetPrices $(NETWORK_ARGS)
 
-clean:
-	@echo "$(BLUE)Cleaning build artifacts...$(NC)"
-	@rm -rf build/
-	@rm -rf out/
-	@rm -rf cache/
-	@rm -f build.log test-unit.log test-fuzz.log test-fuzz-deep.log test-integration.log test-specific.log coverage.log gas-report.log
-	@echo "$(GREEN)✓ Clean complete$(NC)"
+# quick deploy and interaction scripts for gas estimation on Sepolia
 
-clean-deps:
-	@echo "$(BLUE)Removing dependencies...$(NC)"
-	@rm -rf node_modules/
-	@rm -f package-lock.json
-	@rm -rf lib/
-	@echo "$(GREEN)✓ Dependencies removed$(NC)"
+sim-deploy-script:
+	@forge script script/1a_DeployScript.s.sol:DeployScript --rpc-url $(SEPOLIA_RPC_URL)
 
-distclean: clean clean-deps
-	@echo "$(BLUE)Deep clean (removes all generated files)...$(NC)"
-	@echo "$(GREEN)✓ Distclean complete$(NC)"
+sim-deploy-configs:
+	@forge script script/1b_ConfigureMocks.s.sol:ConfigureMocks --rpc-url $(SEPOLIA_RPC_URL)
 
-# ============================================================
-# DEVELOPMENT HELPERS
-# ============================================================
+sim-deploy-adapters:
+	@forge script script/2_DeployAndRegisterAdapter.s.sol:DeployAndRegisterAdapter --rpc-url $(SEPOLIA_RPC_URL)
 
-tree:
-	@echo "$(BLUE)Project structure:$(NC)"
-	@tree -L 3 -I 'node_modules|.git' || find . -type f -name "*.sol" | head -20
+sim-supply:
+	@forge script script/3_SupplyToLiidia.s.sol:SupplyToLiidia --rpc-url $(SEPOLIA_RPC_URL)
 
-count-lines:
-	@echo "$(BLUE)Counting lines of code...$(NC)"
-	@wc -l src/**/*.sol test/**/*.sol | tail -1
+sim-borrow:
+	@forge script script/4_BorrowFromLiidia.s.sol:BorrowFromLiidia --rpc-url $(SEPOLIA_RPC_URL)
 
-anvil:
-	@echo "$(BLUE)Starting Anvil local blockchain...$(NC)"
-	@anvil
-
-# ============================================================
-# COMPOSITE TARGETS
-# ============================================================
-
-all: clean install build test coverage
-	@echo "$(GREEN)✓ Complete build and test pipeline finished$(NC)"
-
-dev: install build test format lint
-	@echo "$(GREEN)✓ Development setup complete$(NC)"
-
-ci: clean install build test coverage gas-report
-	@echo "$(GREEN)✓ CI pipeline complete$(NC)"
-
-# ============================================================
-# PHONY DECLARATIONS (already at top, but for clarity)
-# ============================================================
-
-.PHONY: help install install-foundry install-deps update-submodules update-deps
-.PHONY: build verify
-.PHONY: test test-unit test-fuzz test-fuzz-deep test-integration test-specific
-.PHONY: coverage gas-report
-.PHONY: format lint
-.PHONY: clean clean-deps distclean
-.PHONY: tree count-lines anvil
-.PHONY: all dev ci
+sim-drop-price:
+	@forge script script/5_DropAssetPrices.s.sol:DropAssetPrices --rpc-url $(SEPOLIA_RPC_URL)
