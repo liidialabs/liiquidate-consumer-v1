@@ -29,9 +29,9 @@ interface ILiquidationAdapter {
         bytes callData;
     }
 
-    function protocol() external returns (bytes32);
+    function getProtocolName() external view returns (string memory);
 
-    function name() external pure returns (string memory);
+    function getAdapterAddress() external view returns (address);
 
     function getRiskState(
         address user

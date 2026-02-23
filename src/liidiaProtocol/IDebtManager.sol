@@ -67,6 +67,34 @@ interface IDebtManager {
     ) external view returns (uint256 bonus);
 
     /**
+     * @notice Returns the collateral balance of a user for a specific token.
+     * @param user The user's address.
+     * @param token The collateral token address.
+     * @return balance The collateral balance for the user.
+     */
+    function getCollateralBalanceOfUser(
+        address user,
+        address token
+    ) external view returns (uint256);
+
+    /**
+     * @notice Returns a user's owed amounts: debt owed to Aave and total debt including protocol cut.
+     * @param user The user's address.
+     * @return userAaveDebt Debt owed to Aave (USDC).
+     * @return userTotalDebt Total debt including protocol cut (USDC).
+     */
+    function getUserDebt(
+        address user
+    ) external returns (uint256 userAaveDebt, uint256 userTotalDebt);
+
+    /**
+     * @notice Returns the health factor of a user (internal accounting).
+     * @param user The user's address.
+     * @return healthFactor The user's health factor (wad).
+     */
+    function getHealthFactor(address user) external returns (uint256);
+
+    /**
      * @notice Returns a user's account data including total collateral, total debt and health factor.
      * @param user The user's address.
      * @return _totalCollateral Total collateral value in USD (1e8 = 1 USD as per Aave feed scaling).
