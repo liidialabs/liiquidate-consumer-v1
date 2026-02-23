@@ -67,7 +67,7 @@ contract LiiquidateTest is Test {
     uint256 constant DEBT_TO_COVER2 = 700e18;
 
     event LiquidationExecuted(
-        bytes32 indexed protocol,
+        string indexed protocol,
         address indexed user,
         address indexed adapter,
         bool success
@@ -112,7 +112,7 @@ contract LiiquidateTest is Test {
         debtManager = new MockDebtManager();
         debtManagerAdapter = new MockDebtManagerAdapter(
             address(debtManager),
-            keccak256("DebtManager1")
+            "DebtManager1"
         );
 
         // 
@@ -162,7 +162,6 @@ contract LiiquidateTest is Test {
 
         registry = new AdapterRegistry();
         registry.registerAdapter(
-            debtManagerAdapter.protocol(), 
             address(debtManagerAdapter)
         );
 
@@ -307,7 +306,7 @@ contract LiiquidateTest is Test {
             new Liiquidate.LiquidationReport[](1);
         
         jobs[0] = Liiquidate.LiquidationReport({
-            protocol: debtManagerAdapter.protocol(),
+            protocol: debtManagerAdapter.getProtocolName(),
             user: user,
             collateralAsset: address(collateralToken),
             debtAsset: address(debtToken),
@@ -357,14 +356,14 @@ contract LiiquidateTest is Test {
             new Liiquidate.LiquidationReport[](2);
         
         jobs[0] = Liiquidate.LiquidationReport({
-            protocol: debtManagerAdapter.protocol(),
+            protocol: debtManagerAdapter.getProtocolName(),
             user: user,
             collateralAsset: address(collateralToken),
             debtAsset: address(debtToken),
             debtToCover: DEBT_TO_COVER
         });
         jobs[1] = Liiquidate.LiquidationReport({
-            protocol: debtManagerAdapter.protocol(),
+            protocol: debtManagerAdapter.getProtocolName(),
             user: user2,
             collateralAsset: address(collateralToken),
             debtAsset: address(debtToken),
@@ -398,7 +397,7 @@ contract LiiquidateTest is Test {
         debtManager2 = new MockDebtManager();
         debtManagerAdapter2 = new MockDebtManagerAdapter(
             address(debtManager2),
-            keccak256("DebtManager2")
+            "DebtManager2"
         );
 
         // 
@@ -435,7 +434,6 @@ contract LiiquidateTest is Test {
 
         // register
         registry.registerAdapter(
-            debtManagerAdapter2.protocol(), 
             address(debtManagerAdapter2)
         );
 
@@ -459,14 +457,14 @@ contract LiiquidateTest is Test {
             new Liiquidate.LiquidationReport[](2);
         
         jobs[0] = Liiquidate.LiquidationReport({
-            protocol: debtManagerAdapter.protocol(),
+            protocol: debtManagerAdapter.getProtocolName(),
             user: user,
             collateralAsset: address(collateralToken),
             debtAsset: address(debtToken),
             debtToCover: DEBT_TO_COVER
         });
         jobs[1] = Liiquidate.LiquidationReport({
-            protocol: debtManagerAdapter2.protocol(),
+            protocol: debtManagerAdapter2.getProtocolName(),
             user: user2,
             collateralAsset: address(collateralToken),
             debtAsset: address(debtToken),
