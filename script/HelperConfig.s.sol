@@ -15,7 +15,7 @@ contract HelperConfig is Script {
     MockAaveV3Pool aaveV3pool;
 
     // Constants for known addresses on Sepolia
-    address public constant debtManagerAddress = 0xCb737805008c5a01928DD572A164F5b8001c562d;
+    address public constant debtManagerAddress = 0x3f26685991D09eCd40227Efb7649Ca2A371708CC;
     address public constant aaveAddress = 0x2853eA59358977011a8Bf653ab00d975871e3D6e;
     address public constant WETH = 0x394A1145Cc4480cD047ad065a5Ece23D4fcC2E1d;
     address public constant USDC = 0xf8340a3BB21282Af32B567e0ACE1Cc5c4eF63a73;
@@ -24,18 +24,18 @@ contract HelperConfig is Script {
 
     address public constant forwarderAddress = 0x15fC6ae953E024d975e77382eEeC56A9101f9F88; 
 
-    address public constant uniswapV4PoolAddress = 0x64700291F4E2329047acf0B4F9c8c796D336B97d;
-    address public constant aaveV3PoolAddress = 0x10f5F49BC55bCf438A023cd923A1d7127C6E270F;
-    address public constant adapterRegistryAddress = 0x8043986Ed349E4C08A0f2b6AaA86dDE7DC6E0487;
-    address public constant flashLoanRouterAddress = 0x23350762BC9f90de70fdDBa7ca1B3fa176FDA43A;
-    address public constant universalSwapRouterAddress = 0x35ce0B20c91369bc430BB62D18C05267aE7338bd;
-    address public constant liiquidateAddress = 0x29521DB6c3A2a62216c2beC98cc6A620DA6ba9A5;
-    address public constant uniswapV4AdapterAddress = 0x82C136DF94c0e0318b10d152dDe58eD6c646cc02;
-    address public constant uniswapV4FlashloanAddress = 0x48487E0EC3022B3bE0e00fA61F5826c82Adb8F49;
-    address public constant aaveV3FlashloanAddress = 0x177AbA67e06fD2dEaB774A058456Ef3062761735;
+    address public constant uniswapV4PoolAddress = 0xdb04b6E343E627d0Bbb27be89acbaAAa725ed4e7;
+    address public constant aaveV3PoolAddress = 0x05c19F220705dcfd95850a108852116a04471805;
+    address public constant adapterRegistryAddress = 0x23402f076cfBB11b70f47422dF36EB3795fDabdc;
+    address public constant flashLoanRouterAddress = 0x0A8D5CE8f56Bbd02b054e8894E5263a7c308eD30;
+    address public constant universalSwapRouterAddress = 0xf5c3deBc4cf1598bb506C3e7ae85f415Ab81e053;
+    address public constant liiquidateAddress = 0x79cDbbefC1b8fe6d907Cf439FF8897FE67d2EbEE;
+    address public constant uniswapV4AdapterAddress = 0xFe041876187AA9912F401ef559Ffab3B87049628;
+    address public constant uniswapV4FlashloanAddress = 0xb9F26047345f0d9644Cf773F68cB2bCa6D536D83;
+    address public constant aaveV3FlashloanAddress = 0xBFCdbD2055C77D080204908071904Ac9Ee966F63;
 
-    address public constant mockChainlinkOracle = 0x391d99c8C51447Ae2A03f22e364DED4d34A50Cb8;
-    address public constant liiBorrowV1AdapterAddress = 0x5d45bF860070e05553DAB447710C904a1006fA9c;
+    address public constant mockChainlinkOracle = 0x45B9FB5ff8871BEcA4CbCceA02647BAf6648c286;
+    address public constant liiBorrowV1AdapterAddress = 0x86FC5bb9F9Ab147c2D4A087CE8013DaA58b7C3fd;
 
     uint256 public deployerKey = vm.envUint("PRIVATE_KEY_DEPLOYER");
 
@@ -58,7 +58,7 @@ contract HelperConfig is Script {
         // }
     }
 
-    function getBaseSepoliaConfig() public view returns (NetworkConfig memory mainnetNetworkConfig) {
+    function getBaseSepoliaConfig() public pure returns (NetworkConfig memory mainnetNetworkConfig) {
         mainnetNetworkConfig = NetworkConfig({
             forwarderAddress: address(0),
             aaveV3PoolAddress: address(0),
@@ -66,7 +66,7 @@ contract HelperConfig is Script {
         });
     }
 
-    function getSepoliaConfig() public view returns (NetworkConfig memory sepoliaNetworkConfig) {
+    function getSepoliaConfig() public pure returns (NetworkConfig memory sepoliaNetworkConfig) {
         sepoliaNetworkConfig = NetworkConfig({
             forwarderAddress: address(0),
             aaveV3PoolAddress: address(0),
