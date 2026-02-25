@@ -84,7 +84,7 @@ contract LiiBorrowV1Adapter is ILiquidationAdapter {
             maxDebtToCover: maxDebtToCover,
             actualReturn: maxReturn,
             expectedReturn: minReturn,
-            expectedProfit: minReturn - maxDebtToCover,
+            expectedProfit: maxDebtToCover - minReturn,
             liquidationBonus: liquidationBonus
         });
     }
