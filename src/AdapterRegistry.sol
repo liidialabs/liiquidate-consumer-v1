@@ -25,6 +25,7 @@ contract AdapterRegistry is Ownable {
     error InvalidAddress();
     error InvalidProtocol();
     error AlreadyRegistered();
+    error ProtocolNonExistant();
 
     constructor() Ownable(msg.sender) {}
 
@@ -46,6 +47,7 @@ contract AdapterRegistry is Ownable {
         string memory protocol
     ) external onlyOwner {
         if(bytes(protocol).length == 0) revert InvalidProtocol();
+        if(adapters[protocol] == address(0)) revert ProtocolNonExistant();
         delete adapters[protocol];
         emit AdapterRemoved(protocol);
     }
