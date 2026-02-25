@@ -14,7 +14,7 @@ contract DropAssetPrices is Script {
     IMockAaveOracle aaveOracle;
     IDebtManager debtManager;
 
-    int256 constant NEW_PRICE = 1600e8; // Replace with price that we can simulate
+    int256 constant NEW_PRICE = 1600e8; // Drop to $1600
     uint256 private userKey = vm.envUint("PRIVATE_KEY_USER");
 
     function run() public {
