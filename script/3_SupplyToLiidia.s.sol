@@ -20,7 +20,7 @@ contract SupplyToLiidia is Script {
 
     uint256 private USER = vm.envUint("PRIVATE_KEY_USER");
 
-    int256 constant NEW_PRICE = 2000e8;
+    // int256 constant NEW_PRICE = 2000e8;
     uint256 constant SUPPLY_AMOUNT = 1e18;
 
     function run() public {
@@ -39,8 +39,8 @@ contract SupplyToLiidia is Script {
         address userAddress = vm.addr(USER);
 
         // reset price to $2000 USD before supplying collateral
-        aaveOracle.setAssetPrice(helperConfig.WETH(), uint256(NEW_PRICE));
-        priceFeed.updateAnswer(NEW_PRICE);
+        // aaveOracle.setAssetPrice(helperConfig.WETH(), uint256(NEW_PRICE));
+        // priceFeed.updateAnswer(NEW_PRICE);
 
         // mint WETH to user wallet for testing
         weth.mint(userAddress, SUPPLY_AMOUNT);
