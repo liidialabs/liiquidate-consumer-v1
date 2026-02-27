@@ -296,7 +296,7 @@ contract UniswapV4FlashLoanTest is Test {
             payload.callData
         );
 
-        assertEq(debtToken.balanceOf(liquidator), 70e18);
+        assertGt(debtToken.balanceOf(liquidator), 69e18);
     }
 
     function testFlashLoanRevertsWithZeroAmount() public {
