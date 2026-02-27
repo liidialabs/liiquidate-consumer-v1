@@ -66,6 +66,12 @@ borrow:
 drop-price:
 	@forge script script/5_DropAssetPrices.s.sol:DropAssetPrices $(NETWORK_ARGS)
 
+deploy-liiquidate:
+	@forge script script/DeployLiiquidate.s.sol:DeployLiiquidate $(NETWORK_ARGS)
+
+man-liiquidate:
+	@forge script script/ManualLiiquidate.s.sol:ManualLiiquidate $(NETWORK_ARGS)
+
 # quick deploy and interaction scripts for gas estimation on Sepolia
 
 sim-deploy-script:
@@ -85,3 +91,9 @@ sim-borrow:
 
 sim-drop-price:
 	@forge script script/5_DropAssetPrices.s.sol:DropAssetPrices --rpc-url $(SEPOLIA_RPC_URL)
+
+sim-deploy-liiquidate:
+	@forge script script/DeployLiiquidate.s.sol:DeployLiiquidate --rpc-url $(SEPOLIA_RPC_URL)
+
+sim-man-liiquidate:
+	@forge script script/ManualLiiquidate.s.sol:ManualLiiquidate --rpc-url $(SEPOLIA_RPC_URL)
