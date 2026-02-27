@@ -115,10 +115,10 @@ contract ConfigureMocks is Script {
         fees[0] = uint24(POOL_FEE);
 
         // Initialize the pool in the mock (so sqrtPriceX96 != 0)
-        uint160 sqrtPriceX96 = 2967187660000000000000000000000;
+        uint160 sqrtPriceX96 = 3543191142285914205922034323214;
         _uniswapV4Pool.initialize(
             poolKey,
-            sqrtPriceX96,  
+            sqrtPriceX96,
             1000e18
         );
 
