@@ -15,7 +15,6 @@ contract FlashLoanRouter is Ownable {
     bytes32[] private providerPriority;
     address[] private debts;
     uint256 private callCount;
-    address private proxyAddress;
 
     /// EVENTS ///
 
@@ -25,7 +24,6 @@ contract FlashLoanRouter is Ownable {
     event FlashLoanRoutedOn(bytes32 provider);
     event FlashLoanExecuted(bytes32 provider);
     event FlashLoanFailed(bytes32 provider);
-    event ProxyAddressUpdated(address indexed previousProxy, address indexed newProxy);
 
     /// ERRORS ///
 
@@ -35,15 +33,9 @@ contract FlashLoanRouter is Ownable {
     error InvalidAmount();
     error InvalidData();
     error InvalidReport();
-    error CallerNotAuthorizedProxy();
 
     constructor() Ownable(msg.sender) {
         callCount = 0;
-    }
-
-    modifier onlyProxy() {
-        _onlyProxy();
-        _;
     }
 
     function addProvider(address provider) external onlyOwner {
@@ -68,20 +60,13 @@ contract FlashLoanRouter is Ownable {
         emit ProviderPrioritySet(providerIds);
     }
 
-    function setProxyAddress(address _proxyAddress) external onlyOwner {
-        if(_proxyAddress == address(0)) revert InvalidAddress();
-        address previousProxy = proxyAddress;
-        proxyAddress = _proxyAddress;
-        emit ProxyAddressUpdated(previousProxy, _proxyAddress);
-    }
-
     function flashLoan(
         address debtAsset,
         address collateralAsset,
         uint256 debtToCover,
         address targetContract,
         bytes calldata data
-    ) external onlyProxy returns(bool) {
+    ) external returns(bool) {
         if(providerPriority.length == 0) revert EmptyProviderArray();
         if(
             debtAsset == address(0) ||
@@ -145,9 +130,4 @@ contract FlashLoanRouter is Ownable {
         amount = debtCovered[debt];
     }
 
-    ////// INTERNAL ///////
-
-    function _onlyProxy() internal {
-        if(msg.sender != proxyAddress) revert CallerNotAuthorizedProxy();
-    }
 }
