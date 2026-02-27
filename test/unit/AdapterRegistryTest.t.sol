@@ -81,6 +81,7 @@ contract AdapterRegistryTest is Test {
 
     function test_RemoveAdapter_NonExistent() public {
         // Should not revert even if adapter doesn't exist
+        vm.expectRevert();
         registry.removeAdapter(PROTOCOL_A);
 
         assertEq(registry.getAdapter(PROTOCOL_A), address(0));
