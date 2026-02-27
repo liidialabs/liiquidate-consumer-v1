@@ -102,7 +102,6 @@ contract FlashLoanRouterTest is Test {
         uniswapProvider = new MockFlashLoanProvider("UNISWAP_V4");
         compoundProvider = new MockFlashLoanProvider("COMPOUND");
 
-        router.setProxyAddress(address(this));
     }
 
     // ========== PROVIDER MANAGEMENT TESTS ==========
