@@ -2,9 +2,10 @@
 pragma solidity ^0.8.20;
 
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
 import {PoolKey} from "@uniswap/v4-core/src/types/PoolKey.sol";
-import { PoolIdLibrary, PoolId } from "@uniswap/v4-core/src/types/PoolId.sol";
+import {PoolIdLibrary, PoolId} from "@uniswap/v4-core/src/types/PoolId.sol";
 import {Currency} from "@uniswap/v4-core/src/types/Currency.sol";
 import {BalanceDelta} from "@uniswap/v4-core/src/types/BalanceDelta.sol";
 import {SqrtPriceMath} from "@uniswap/v4-core/src/libraries/SqrtPriceMath.sol";
@@ -14,9 +15,7 @@ import {SqrtPriceMath} from "@uniswap/v4-core/src/libraries/SqrtPriceMath.sol";
  * @notice Interface for contracts that implement unlock callbacks
  */
 interface IUnlockCallback {
-    function unlockCallback(
-        bytes calldata data
-    ) external returns (bytes memory);
+    function unlockCallback(bytes calldata data) external returns (bytes memory);
 }
 
 /**
@@ -29,11 +28,13 @@ contract MockUniswapV4PoolManager is Ownable {
 
     /// @notice Pool configuration and state
     struct Pool {
-        uint160 sqrtPriceX96; // Current sqrt(price) in Q64.96 format
-        int24 tick; // Current tick
-        uint128 liquidity; // Current liquidity
-        bool initialized; // Whether the pool has been initialized
-        uint24 protocolFee; // Protocol fee
+        uint160 sqrtPriceX96;   // Current sqrt(price) in Q64.96 format
+        int24 tick;              // Current tick
+        uint128 liquidity;       // Current liquidity
+        bool initialized;        // Whether the pool has been initialized
+        uint24 protocolFee;      // Protocol fee
+        uint8 token0Decimals;    // Decimals of token0
+        uint8 token1Decimals;    // Decimals of token1
     }
 
     /// @notice Currency balance tracking for unlock mechanism
@@ -51,7 +52,7 @@ contract MockUniswapV4PoolManager is Ownable {
 
     // Pool storage
     mapping(PoolId => Pool) public pools;
-    mapping(address => PriceData) public priceFeeds; // Mock price oracle
+    mapping(address => PriceData) public priceFeeds;
 
     uint256 private constant POOLS_SLOT = 6;
 
@@ -65,14 +66,14 @@ contract MockUniswapV4PoolManager is Ownable {
     uint256 public poolCounter;
 
     // Configuration
-    uint256 public protocolFeePercentage = 0; // in basis points
-    uint256 public maxSwapSlippage = 500; // Default 5%
+    uint256 public protocolFeePercentage = 0;
+    uint256 public maxSwapSlippage = 500;
 
     // For tracking swaps
     mapping(PoolId => uint256) public swapCount;
     mapping(PoolId => uint256) public totalSwapVolume;
 
-    // Events from Uniswap V4
+    // Events
     event Initialize(
         PoolId indexed id,
         Currency indexed currency0,
@@ -95,11 +96,22 @@ contract MockUniswapV4PoolManager is Ownable {
         uint24 fee
     );
 
+    event SqrtPriceUpdated(
+        PoolId indexed id,
+        uint160 oldSqrtPriceX96,
+        uint160 newSqrtPriceX96,
+        int24 newTick
+    );
+
     event Unlock(address indexed caller);
     event Settle(address indexed currency, uint256 amount);
     event Take(address indexed currency, address indexed to, uint256 amount);
 
     constructor() Ownable(msg.sender) {}
+
+    // =========================================================================
+    // Core unlock mechanism
+    // =========================================================================
 
     /**
      * @notice Main unlock callback mechanism
@@ -121,64 +133,17 @@ contract MockUniswapV4PoolManager is Ownable {
         return result;
     }
 
-    // /**
-    //  * @notice Initializes a pool with the given parameters
-    //  * @param key The pool key
-    //  * @param sqrtPriceX96 The initial sqrt price
-    //  * @return tick The initial tick
-    //  */
-    // function initialize(
-    //     PoolKey memory key,
-    //     uint160 sqrtPriceX96
-    // ) external returns (int24 tick) {
-    //     require(sqrtPriceX96 > 0, "Invalid price");
-
-    //     PoolId id = PoolId.wrap(keccak256(abi.encode(key)));
-    //     require(!pools[id].initialized, "Pool already initialized");
-
-    //     // Initialize pool
-    //     pools[id].sqrtPriceX96 = sqrtPriceX96;
-    //     pools[id].tick = calculateTick(sqrtPriceX96);
-    //     pools[id].liquidity = 100e18;
-    //     pools[id].initialized = true;
-
-    //     tick = pools[id].tick;
-
-    //     emit Initialize(
-    //         id,
-    //         key.currency0,
-    //         key.currency1,
-    //         key.fee,
-    //         key.tickSpacing,
-    //         address(key.hooks),
-    //         sqrtPriceX96,
-    //         tick
-    //     );
-
-    //     // 
-
-    //     bytes32 slot = keccak256(abi.encode(id, POOLS_SLOT));
-    //     // Pack: sqrtPriceX96 (160 bits) | tick (24 bits) | protocolFee (24 bits) | lpFee (24 bits)
-    //     bytes32 data = bytes32(uint256(sqrtPriceX96));
-    //     assembly {
-    //         sstore(slot, data)
-    //     }
-
-    //     // Store liquidity in the next slot
-    //     uint128 initialLiquidity = 100e18;
-    //     bytes32 liquiditySlot = bytes32(uint256(slot) + 1);
-    //     assembly {
-    //         sstore(liquiditySlot, initialLiquidity)
-    //     }
-    // }
+    // =========================================================================
+    // Pool initialization
+    // =========================================================================
 
     /**
-    * @notice Initializes a pool with the given parameters
-    * @param key The pool key
-    * @param sqrtPriceX96 The initial sqrt price
-    * @param initialLiquidity The initial liquidity
-    * @return tick The initial tick
-    */
+     * @notice Initializes a pool with the given parameters
+     * @param key The pool key
+     * @param sqrtPriceX96 The initial sqrt price
+     * @param initialLiquidity The initial liquidity
+     * @return tick The initial tick
+     */
     function initialize(
         PoolKey memory key,
         uint160 sqrtPriceX96,
@@ -189,11 +154,19 @@ contract MockUniswapV4PoolManager is Ownable {
         PoolId id = PoolId.wrap(keccak256(abi.encode(key)));
         require(!pools[id].initialized, "Pool already initialized");
 
-        // Initialize pool with liquidity
-        pools[id].sqrtPriceX96 = sqrtPriceX96;
-        pools[id].tick = calculateTick(sqrtPriceX96);
-        pools[id].liquidity = initialLiquidity;
-        pools[id].initialized = true;
+        // Fetch decimals from tokens
+        address token0 = Currency.unwrap(key.currency0);
+        address token1 = Currency.unwrap(key.currency1);
+        uint8 decimals0 = IERC20Metadata(token0).decimals();
+        uint8 decimals1 = IERC20Metadata(token1).decimals();
+
+        // Initialize pool
+        pools[id].sqrtPriceX96   = sqrtPriceX96;
+        pools[id].tick            = calculateTick(sqrtPriceX96);
+        pools[id].liquidity       = initialLiquidity;
+        pools[id].initialized     = true;
+        pools[id].token0Decimals  = decimals0;
+        pools[id].token1Decimals  = decimals1;
 
         tick = pools[id].tick;
 
@@ -208,81 +181,123 @@ contract MockUniswapV4PoolManager is Ownable {
             tick
         );
 
-        // 🔑 Store data in the EXACT slots that StateLibrary expects
-        _storePoolData(id, sqrtPriceX96, pools[id].tick, initialLiquidity);
-        
+        _storePoolData(id, sqrtPriceX96, tick, initialLiquidity);
+
         return tick;
     }
 
+    // =========================================================================
+    // Price update (call this whenever you simulate a price change in tests)
+    // =========================================================================
+
     /**
-    * @notice Internal function to store pool data in correct storage slots
-    * @dev This matches the storage layout expected by StateLibrary
-    */
+     * @notice Updates the sqrtPriceX96 for an existing pool
+     * @dev Call this in your tests whenever the oracle price changes so the
+     *      swap math stays consistent with your liquidation math.
+     * @param key The pool key
+     * @param newSqrtPriceX96 The new sqrt price in Q64.96 format
+     *
+     * Example — drop from 2000 to 1600 USDC/WETH:
+     *   Original sqrtPriceX96 ≈ 2967187660000000000000000000000  (2000 USDC/WETH)
+     *   New      sqrtPriceX96 ≈ 2653120000000000000000000000000  (1600 USDC/WETH)
+     *   Derivation: newPrice = oldPrice * sqrt(1600/2000) = oldPrice * sqrt(0.8)
+     */
+    function setSqrtPrice(PoolKey memory key, uint160 newSqrtPriceX96) external {
+        require(newSqrtPriceX96 > 0, "Invalid price");
+
+        PoolId id = PoolId.wrap(keccak256(abi.encode(key)));
+        require(pools[id].initialized, "Pool not initialized");
+
+        Pool storage pool = pools[id];
+
+        uint160 oldSqrtPriceX96 = pool.sqrtPriceX96;
+        pool.sqrtPriceX96 = newSqrtPriceX96;
+        pool.tick = calculateTick(newSqrtPriceX96);
+
+        // Keep existing liquidity, update price + tick in extsload-compatible slots
+        _storePoolData(id, newSqrtPriceX96, pool.tick, pool.liquidity);
+
+        emit SqrtPriceUpdated(id, oldSqrtPriceX96, newSqrtPriceX96, pool.tick);
+    }
+
+    // =========================================================================
+    // Storage layout helpers (must match StateLibrary slot expectations)
+    // =========================================================================
+
+    /**
+     * @notice Internal function to store pool data in correct storage slots
+     * @dev Matches the storage layout expected by StateLibrary / extsload
+     */
     function _storePoolData(
         PoolId id,
         uint160 sqrtPriceX96,
         int24 tick,
         uint128 liquidity
     ) internal {
-        // Calculate base slot for this pool
         bytes32 stateSlot = keccak256(abi.encodePacked(PoolId.unwrap(id), POOLS_SLOT));
-        
-        // Slot 0: sqrtPriceX96 + tick + protocolFee + lpFee
+
+        // Slot 0: sqrtPriceX96 (160 bits) | tick (24 bits) | fees
         uint256 packed = uint256(sqrtPriceX96);
         packed |= (uint256(uint24(tick)) << 160);
-        // Add fees if needed (currently 0)
-        
+
         assembly {
             sstore(stateSlot, packed)
         }
-        
-        // Slot 1: feeGrowthGlobal0X128 (store 0 for now)
+
+        // Slot 1: feeGrowthGlobal0X128
         bytes32 feeGrowth0Slot = bytes32(uint256(stateSlot) + 1);
         assembly {
             sstore(feeGrowth0Slot, 0)
         }
-        
-        // Slot 2: feeGrowthGlobal1X128 (store 0 for now)
+
+        // Slot 2: feeGrowthGlobal1X128
         bytes32 feeGrowth1Slot = bytes32(uint256(stateSlot) + 2);
         assembly {
             sstore(feeGrowth1Slot, 0)
         }
-        
-        // ✅ Slot 3: liquidity (THIS IS WHERE StateLibrary EXPECTS IT!)
+
+        // Slot 3: liquidity
         bytes32 liquiditySlot = bytes32(uint256(stateSlot) + 3);
         assembly {
             sstore(liquiditySlot, liquidity)
         }
     }
 
+    // =========================================================================
+    // Liquidity management
+    // =========================================================================
+
     /**
-    * @notice Sets liquidity for a pool (for testing purposes)
-    * @param key The pool key
-    * @param newLiquidity The liquidity amount to set
-    */
+     * @notice Sets liquidity for a pool (for testing purposes)
+     * @param key The pool key
+     * @param newLiquidity The liquidity amount to set
+     */
     function setLiquidity(PoolKey memory key, uint128 newLiquidity) external {
         PoolId id = PoolId.wrap(keccak256(abi.encode(key)));
         require(pools[id].initialized, "Pool not initialized");
         pools[id].liquidity = newLiquidity;
-        
-        // Also update the storage slot for extsload compatibility
+
         bytes32 slot = keccak256(abi.encode(id, POOLS_SLOT));
-        bytes32 liquiditySlot = bytes32(uint256(slot) + 1); // Next slot for liquidity
-        
+        bytes32 liquiditySlot = bytes32(uint256(slot) + 1);
+
         assembly {
             sstore(liquiditySlot, newLiquidity)
         }
     }
 
     /**
-    * @notice Gets liquidity for a pool
-    * @param id The pool ID
-    * @return The liquidity
-    */
+     * @notice Gets liquidity for a pool
+     * @param id The pool ID
+     * @return The liquidity
+     */
     function getLiquidity(PoolId id) external view returns (uint128) {
         require(pools[id].initialized, "Pool not initialized");
         return pools[id].liquidity;
     }
+
+    // =========================================================================
+    // Swap
+    // =========================================================================
 
     /**
      * @notice Executes a swap in a pool
@@ -304,14 +319,13 @@ contract MockUniswapV4PoolManager is Ownable {
 
         Pool storage pool = pools[id];
 
-        // Calculate swap amounts
         (uint256 amountIn, uint256 amountOut) = calculateSwapAmounts(
             pool,
             params.amountSpecified,
             params.zeroForOne
         );
 
-        // Update pool price (simplified)
+        // Update pool price
         uint256 priceChangeRatio = (amountIn * 10000) /
             (pool.liquidity > 0 ? pool.liquidity : 1);
 
@@ -341,20 +355,13 @@ contract MockUniswapV4PoolManager is Ownable {
         swapCount[id]++;
         totalSwapVolume[id] += amountIn;
 
-        // CONSTRUCT THE BALANCE DELTA
         int128 amount0;
         int128 amount1;
-        
+
         if (params.zeroForOne) {
-            // Swapping token0 for token1
-            // amount0 is positive (we're taking from user)
-            // amount1 is negative (we're giving to user)
             amount0 = int128(int256(amountIn));
             amount1 = -int128(int256(amountOut));
         } else {
-            // Swapping token1 for token0
-            // amount0 is negative (we're giving to user)
-            // amount1 is positive (we're taking from user)
             amount0 = -int128(int256(amountOut));
             amount1 = int128(int256(amountIn));
         }
@@ -366,39 +373,24 @@ contract MockUniswapV4PoolManager is Ownable {
                 ? int128(int256(amountIn))
                 : -int128(int256(amountOut)),
             params.zeroForOne
-                ? int128(int256(amountOut))
-                : -int128(int256(amountIn)),
+                ? -int128(int256(amountOut))
+                : int128(int256(amountIn)),
             pool.sqrtPriceX96,
             pool.liquidity,
             pool.tick,
             key.fee
         );
 
-        // RETURN THE CONSTRUCTED BALANCE DELTA
         swapDelta = toBalanceDelta(amount0, amount1);
-
         return swapDelta;
     }
 
-    /**
-    * @notice Helper to create a BalanceDelta
-    * @param amount0 The amount0 delta
-    * @param amount1 The amount1 delta
-    * @return The BalanceDelta
-    */
-    function toBalanceDelta(
-        int128 amount0,
-        int128 amount1
-    ) internal pure returns (BalanceDelta) {
-        // BalanceDelta packs two int128s into a single int256
-        // Upper 128 bits: amount0
-        // Lower 128 bits: amount1
-        int256 packed = (int256(amount0) << 128) | (int256(uint256(uint128(amount1))));
-        return BalanceDelta.wrap(packed);
-    }
+    // =========================================================================
+    // Settlement / take / sync
+    // =========================================================================
 
     /**
-     * @notice Borrows currency from the pool (used in flash loans)
+     * @notice Borrows currency from the pool (used in flash loans / swaps)
      * @param currency The currency to borrow
      * @param to The recipient
      * @param amount The amount to borrow
@@ -411,16 +403,13 @@ contract MockUniswapV4PoolManager is Ownable {
         address currencyAddr = Currency.unwrap(currency);
         IERC20 token = IERC20(currencyAddr);
 
-        // Check balance
         require(
             token.balanceOf(address(this)) >= amount,
             "Insufficient balance in pool"
         );
 
-        // Update delta
         currencyDeltas[currencyAddr] -= int256(amount);
 
-        // Transfer
         require(token.transfer(to, amount), "Transfer failed");
 
         emit Take(currencyAddr, to, amount);
@@ -433,13 +422,11 @@ contract MockUniswapV4PoolManager is Ownable {
     function sync(Currency currency) external {
         require(isUnlocked, "Must be unlocked");
         address currencyAddr = Currency.unwrap(currency);
-        syncedBalances[currencyAddr] = IERC20(currencyAddr).balanceOf(
-            address(this)
-        );
+        syncedBalances[currencyAddr] = IERC20(currencyAddr).balanceOf(address(this));
     }
 
     /**
-     * @notice Settles the amount owed for the currencydelta
+     * @notice Settles the amount owed
      * @return paid The amount paid
      */
     function settle() external payable returns (uint256 paid) {
@@ -453,21 +440,19 @@ contract MockUniswapV4PoolManager is Ownable {
      * @param recipient The recipient address
      * @return paid The amount paid
      */
-    function settleFor(
-        address recipient
-    ) external payable returns (uint256 paid) {
+    function settleFor(address recipient) external payable returns (uint256 paid) {
         require(isUnlocked, "Must be unlocked");
         require(recipient != address(0), "Invalid recipient");
         paid = msg.value;
         emit Settle(recipient, paid);
     }
 
+    // =========================================================================
+    // Price oracle helpers
+    // =========================================================================
+
     /**
      * @notice Sets a mock price for an asset
-     * @param asset The asset address
-     * @param sqrtPriceX96 The sqrt price in Q64.96
-     * @param liquidity The liquidity
-     * @param fee The fee
      */
     function setPriceData(
         address asset,
@@ -484,32 +469,25 @@ contract MockUniswapV4PoolManager is Ownable {
 
     /**
      * @notice Gets the price data for an asset
-     * @param asset The asset address
-     * @return The price data
      */
-    function getPriceData(
-        address asset
-    ) external view returns (PriceData memory) {
+    function getPriceData(address asset) external view returns (PriceData memory) {
         return priceFeeds[asset];
     }
 
+    // =========================================================================
+    // View helpers
+    // =========================================================================
+
     /**
      * @notice Gets pool state
-     * @param key The pool key
-     * @return sqrtPriceX96 Current sqrt price
-     * @return tick Current tick
-     * @return liquidity Current liquidity
      */
-    function getPoolState(
-        PoolKey memory key
-    )
+    function getPoolState(PoolKey memory key)
         external
         view
         returns (uint160 sqrtPriceX96, int24 tick, uint128 liquidity)
     {
         PoolId id = PoolId.wrap(keccak256(abi.encode(key)));
         require(pools[id].initialized, "Pool not initialized");
-
         sqrtPriceX96 = pools[id].sqrtPriceX96;
         tick = pools[id].tick;
         liquidity = pools[id].liquidity;
@@ -517,7 +495,6 @@ contract MockUniswapV4PoolManager is Ownable {
 
     /**
      * @notice Gets the current unlock state
-     * @return Whether currently unlocked
      */
     function getUnlockState() external view returns (bool) {
         return isUnlocked;
@@ -525,39 +502,42 @@ contract MockUniswapV4PoolManager is Ownable {
 
     /**
      * @notice Gets a currency delta
-     * @param currency The currency address
-     * @return The delta
      */
     function getCurrencyDelta(address currency) external view returns (int256) {
         return currencyDeltas[currency];
     }
 
-    function getSlot0(PoolId id) 
-        external 
-        view 
+    /**
+     * @notice Gets slot0 data for a pool
+     */
+    function getSlot0(PoolId id)
+        external
+        view
         returns (
             uint160 sqrtPriceX96,
             int24 tick,
             uint24 protocolFee,
             uint24 lpFee
-        ) 
+        )
     {
         Pool storage s = pools[id];
-        require(s.initialized, "Pool not initialized!");  // ✅ Add check here
+        require(s.initialized, "Pool not initialized");
         return (s.sqrtPriceX96, s.tick, s.protocolFee, s.protocolFee);
     }
 
+    /**
+     * @notice Raw storage slot read (for StateLibrary / extsload compatibility)
+     */
     function extsload(bytes32 slot) external view returns (bytes32 value) {
         assembly {
             value := sload(slot)
         }
     }
-    
-    function extsload(bytes32[] calldata slots) 
-        external 
-        view 
-        returns (bytes32[] memory) 
-    {
+
+    /**
+     * @notice Batch raw storage slot read
+     */
+    function extsload(bytes32[] calldata slots) external view returns (bytes32[] memory) {
         bytes32[] memory values = new bytes32[](slots.length);
         for (uint256 i = 0; i < slots.length; i++) {
             assembly {
@@ -570,35 +550,78 @@ contract MockUniswapV4PoolManager is Ownable {
         return values;
     }
 
-    // Internal helper functions
+    /**
+     * @notice Gets swap statistics for a pool
+     */
+    function getSwapStats(PoolKey memory key)
+        external
+        view
+        returns (uint256 count, uint256 volume)
+    {
+        PoolId id = PoolId.wrap(keccak256(abi.encode(key)));
+        return (swapCount[id], totalSwapVolume[id]);
+    }
+
+    // =========================================================================
+    // Liquidity deposit / withdraw
+    // =========================================================================
 
     /**
-     * @notice Calculates swap amounts
-     * @param pool The pool
-     * @param amountSpecified The amount specified
-     * @param zeroForOne Trade direction
+     * @notice Deposit tokens into the pool as liquidity
+     * @dev Make sure to seed BOTH tokens with enough balance to cover swaps
      */
-    // function calculateSwapAmounts(
-    //     Pool storage pool,
-    //     int256 amountSpecified,
-    //     bool zeroForOne
-    // ) internal view returns (uint256 amountIn, uint256 amountOut) {
-    //     uint256 absAmount = amountSpecified > 0
-    //         ? uint256(amountSpecified)
-    //         : uint256(-amountSpecified);
+    function depositLiquidity(address token, uint256 amount) external {
+        require(token != address(0), "Invalid token");
+        require(amount > 0, "Amount must be greater than zero");
+        IERC20(token).transferFrom(msg.sender, address(this), amount);
+    }
 
-    //     // Simplified: 1% slippage
-    //     if (amountSpecified < 0) {
-    //         // Exact input
-    //         amountIn = absAmount;
-    //         amountOut = (amountIn * 99) / 100;
-    //     } else {
-    //         // Exact output
-    //         amountOut = absAmount;
-    //         amountIn = (amountOut * 101) / 100;
-    //     }
-    // }
+    /**
+     * @notice Withdraw tokens from the pool (owner only)
+     */
+    function withdrawLiquidity(address token, uint256 amount) external onlyOwner {
+        require(token != address(0), "Invalid token");
+        require(amount > 0, "Amount must be greater than zero");
+        IERC20(token).transfer(msg.sender, amount);
+    }
 
+    /**
+     * @notice Gets the balance of a token held by the pool
+     */
+    function getBalance(address token) external view returns (uint256) {
+        return IERC20(token).balanceOf(address(this));
+    }
+
+    // =========================================================================
+    // Admin
+    // =========================================================================
+
+    /**
+     * @notice Sets protocol fee percentage (basis points)
+     */
+    function setProtocolFeePercentage(uint256 newPercentage) external onlyOwner {
+        require(newPercentage <= 10000, "Invalid percentage");
+        protocolFeePercentage = newPercentage;
+    }
+
+    receive() external payable {}
+
+    // =========================================================================
+    // Internal helpers
+    // =========================================================================
+
+    /**
+     * @notice Calculates swap amounts using real Uniswap SqrtPriceMath,
+     *         with automatic decimal scaling between token0 and token1.
+     *
+     *         For exact-input (amountSpecified < 0):
+     *           - Uses SqrtPriceMath.getNextSqrtPriceFromInput to find the new price
+     *           - Derives amountOut and scales by the decimal difference
+     *
+     *         For exact-output (amountSpecified > 0):
+     *           - Uses SqrtPriceMath.getNextSqrtPriceFromOutput
+     *           - amountOut is already in the correct decimals (caller supplied)
+     */
     function calculateSwapAmounts(
         Pool storage pool,
         int256 amountSpecified,
@@ -608,49 +631,143 @@ contract MockUniswapV4PoolManager is Ownable {
             ? uint256(amountSpecified)
             : uint256(-amountSpecified);
 
-        // 🔑 USE REAL UNISWAP MATH
+        uint8 d0 = pool.token0Decimals;
+        uint8 d1 = pool.token1Decimals;
+
+        // if (amountSpecified < 0) {
+        //     // ── Exact input ──────────────────────────────────────────────────
+        //     amountIn = absAmount;
+        //     uint256 amountInWithFee = (amountIn * 997000) / 1000000;
+
+        //     uint160 nextSqrtPrice = SqrtPriceMath.getNextSqrtPriceFromInput(
+        //         pool.sqrtPriceX96,
+        //         pool.liquidity,
+        //         amountInWithFee,
+        //         zeroForOne
+        //     );
+
+        //     if (zeroForOne) {
+        //         // Selling token0, receiving token1
+        //         amountOut = SqrtPriceMath.getAmount1Delta(
+        //             nextSqrtPrice,
+        //             pool.sqrtPriceX96,
+        //             pool.liquidity,
+        //             false
+        //         );
+        //         // SqrtPriceMath works in token0-normalised units (18 dec equivalent).
+        //         // Scale the raw output to match token1's actual decimals.
+        //         if (d0 > d1) {
+        //             amountOut = amountOut / (10 ** uint256(d0 - d1));
+        //         } else if (d1 > d0) {
+        //             amountOut = amountOut * (10 ** uint256(d1 - d0));
+        //         }
+        //     } else {
+        //         // Selling token1, receiving token0
+        //         amountOut = SqrtPriceMath.getAmount0Delta(
+        //             pool.sqrtPriceX96,
+        //             nextSqrtPrice,
+        //             pool.liquidity,
+        //             false
+        //         );
+        //         // Scale to token0's actual decimals
+        //         if (d1 > d0) {
+        //             amountOut = amountOut / (10 ** uint256(d1 - d0));
+        //         } else if (d0 > d1) {
+        //             amountOut = amountOut * (10 ** uint256(d0 - d1));
+        //         }
+        //     }
+        // } else {
+        //     // ── Exact output ─────────────────────────────────────────────────
+        //     // amountOut is provided by the caller in the correct decimals already
+        //     amountOut = absAmount;
+
+        //     uint160 nextSqrtPrice = SqrtPriceMath.getNextSqrtPriceFromOutput(
+        //         pool.sqrtPriceX96,
+        //         pool.liquidity,
+        //         amountOut,
+        //         zeroForOne
+        //     );
+
+        //     if (zeroForOne) {
+        //         amountIn = SqrtPriceMath.getAmount0Delta(
+        //             pool.sqrtPriceX96,
+        //             nextSqrtPrice,
+        //             pool.liquidity,
+        //             true
+        //         );
+        //     } else {
+        //         amountIn = SqrtPriceMath.getAmount1Delta(
+        //             nextSqrtPrice,
+        //             pool.sqrtPriceX96,
+        //             pool.liquidity,
+        //             true
+        //         );
+        //     }
+
+        //     // Add fee back
+        //     amountIn = (amountIn * 1000000) / 997000 + 1;
+        // }
+
         if (amountSpecified < 0) {
-            // Exact input
             amountIn = absAmount;
-            amountOut = absAmount * 1400e18 / 1e18;
-            
-            // // Apply fee (assuming 0.3% = 3000)
-            // uint256 amountInWithFee = (amountIn * 997000) / 1000000;
-            
-            // // Calculate using real Uniswap math
-            // uint160 nextSqrtPrice = SqrtPriceMath.getNextSqrtPriceFromInput(
-            //     pool.sqrtPriceX96,
-            //     pool.liquidity,
-            //     amountInWithFee,
-            //     zeroForOne
-            // );
-            
-            // if (zeroForOne) {
-            //     amountOut = SqrtPriceMath.getAmount1Delta(
-            //         nextSqrtPrice,
-            //         pool.sqrtPriceX96,
-            //         pool.liquidity,
-            //         false
-            //     );
-            // } else {
-            //     amountOut = SqrtPriceMath.getAmount0Delta(
-            //         pool.sqrtPriceX96,
-            //         nextSqrtPrice,
-            //         pool.liquidity,
-            //         false
-            //     );
-            // }
+
+            // Apply 0.3% fee
+            uint256 amountInWithFee = (amountIn * 997) / 1000;
+
+            if (zeroForOne) {
+                // Selling token0 (WETH, 18dec) → receiving token1 (USDC, 6dec)
+                // price = sqrtPriceX96^2 / 2^192, then adjust for decimals
+                //
+                // amountOut (in token1 units) =
+                //   amountIn (token0 units)
+                //   * sqrtP^2 / 2^192          ← price ratio in raw units
+                //   / 10^(d0 - d1)             ← decimal adjustment
+                //
+                // To avoid overflow, rearrange:
+                //   amountOut = amountIn * sqrtP / 2^96 * sqrtP / 2^96 / 10^(d0-d1)
+
+                uint256 sqrtP = uint256(pool.sqrtPriceX96);
+                // Step 1: amountIn * sqrtP / 2^96  (intermediate, stays reasonable)
+                uint256 step1 = (amountInWithFee * sqrtP) >> 96;
+                // Step 2: step1 * sqrtP / 2^96
+                uint256 step2 = (step1 * sqrtP) >> 96;
+                // Step 3: adjust for decimal difference
+                if (d0 > d1) {
+                    amountOut = step2 / (10 ** uint256(d0 - d1));
+                } else if (d1 > d0) {
+                    amountOut = step2 * (10 ** uint256(d1 - d0));
+                } else {
+                    amountOut = step2;
+                }
+            } else {
+                // Selling token1 (USDC, 6dec) → receiving token0 (WETH, 18dec)
+                // Inverse: amountOut = amountIn * 2^192 / sqrtP^2 * 10^(d0-d1)
+
+                uint256 sqrtP = uint256(pool.sqrtPriceX96);
+                // Step 1: amountIn << 96 / sqrtP
+                uint256 step1 = (amountInWithFee << 96) / sqrtP;
+                // Step 2: step1 << 96 / sqrtP
+                uint256 step2 = (step1 << 96) / sqrtP;
+                // Step 3: adjust for decimal difference
+                if (d0 > d1) {
+                    amountOut = step2 * (10 ** uint256(d0 - d1));
+                } else if (d1 > d0) {
+                    amountOut = step2 / (10 ** uint256(d1 - d0));
+                } else {
+                    amountOut = step2;
+                }
+            }
         } else {
-            // Exact output
+            // Exact output — keep existing logic
             amountOut = absAmount;
-            
+
             uint160 nextSqrtPrice = SqrtPriceMath.getNextSqrtPriceFromOutput(
                 pool.sqrtPriceX96,
                 pool.liquidity,
                 amountOut,
                 zeroForOne
             );
-            
+
             if (zeroForOne) {
                 amountIn = SqrtPriceMath.getAmount0Delta(
                     pool.sqrtPriceX96,
@@ -666,94 +783,36 @@ contract MockUniswapV4PoolManager is Ownable {
                     true
                 );
             }
-            
-            // Add fee back
+
             amountIn = (amountIn * 1000000) / 997000 + 1;
         }
     }
 
     /**
-     * @notice Calculates tick from sqrt price
-     * @param sqrtPriceX96 The sqrt price
-     * @return The tick
+     * @notice Helper to create a BalanceDelta (upper 128 = amount0, lower 128 = amount1)
+     */
+    function toBalanceDelta(int128 amount0, int128 amount1)
+        internal
+        pure
+        returns (BalanceDelta)
+    {
+        int256 packed = (int256(amount0) << 128) | int256(uint256(uint128(amount1)));
+        return BalanceDelta.wrap(packed);
+    }
+
+    /**
+     * @notice Calculates tick from sqrtPriceX96 (simplified)
      */
     function calculateTick(uint160 sqrtPriceX96) internal pure returns (int24) {
-        // Simplified: just return a mock tick based on price
-        // Real implementation would use more complex math
         return int24(int256(uint256(sqrtPriceX96)) / 1e10);
     }
 
     /**
-     * @notice Helper to get minimum of two values
+     * @notice Returns the smaller of two uint256 values
      */
     function min(uint256 a, uint256 b) internal pure returns (uint256) {
         return a < b ? a : b;
     }
-
-    /**
-     * @notice Gets swap statistics for a pool
-     * @param key The pool key
-     * @return count Number of swaps
-     * @return volume Total swap volume
-     */
-    function getSwapStats(
-        PoolKey memory key
-    ) external view returns (uint256 count, uint256 volume) {
-        PoolId id = PoolId.wrap(keccak256(abi.encode(key)));
-        return (swapCount[id], totalSwapVolume[id]);
-    }
-
-    /**
-     * @notice Sets protocol fee percentage
-     * @param newPercentage The new percentage in basis points
-     */
-    function setProtocolFeePercentage(
-        uint256 newPercentage
-    ) external onlyOwner {
-        require(newPercentage <= 10000, "Invalid percentage");
-        protocolFeePercentage = newPercentage;
-    }
-
-    /**
-     * @notice Allows depositing tokens to the pool as liquidity
-     * @param token The token address
-     * @param amount The amount to deposit
-     */
-    function depositLiquidity(address token, uint256 amount) external {
-        require(token != address(0), "Invalid token");
-        require(amount > 0, "Amount must be greater than zero");
-
-        IERC20(token).transferFrom(msg.sender, address(this), amount);
-    }
-
-    /**
-     * @notice Allows withdrawing tokens from the pool
-     * @param token The token address
-     * @param amount The amount to withdraw
-     */
-    function withdrawLiquidity(
-        address token,
-        uint256 amount
-    ) external onlyOwner {
-        require(token != address(0), "Invalid token");
-        require(amount > 0, "Amount must be greater than zero");
-
-        IERC20(token).transfer(msg.sender, amount);
-    }
-
-    /**
-     * @notice Gets the balance of a token in the pool
-     * @param token The token address
-     * @return The balance
-     */
-    function getBalance(address token) external view returns (uint256) {
-        return IERC20(token).balanceOf(address(this));
-    }
-
-    /**
-     * @notice Receives ETH
-     */
-    receive() external payable {}
 }
 
 // Structs for swap parameters (matching Uniswap V4)
