@@ -11,11 +11,11 @@ import { FlashLoanRouter } from "./FlashLoanRouter.sol";
 /// @dev ...
 contract Liiquidate is ReceiverTemplate {
     struct LiquidationReport {
-        string protocol;
         address user;
         address collateralAsset;
         address debtAsset;
         uint256 debtToCover;
+        string protocol;
     }
 
     AdapterRegistry public immutable registry;
@@ -36,6 +36,12 @@ contract Liiquidate is ReceiverTemplate {
     error InvalidReport();
     error InvalidProtocol();
     error InvalidAmount();
+    error EmptyJobArray();
+    error AdapterNotFound(string protocol);
+
+    uint256 public callCount;
+    bytes public lastRawReport;
+    bytes public lastDecodeError;
 
     constructor(
         address _registry, 
@@ -55,13 +61,18 @@ contract Liiquidate is ReceiverTemplate {
     function _processReport(
         bytes calldata report
     ) internal override {
-        if (report.length == 0) revert InvalidReport();
-
-        LiquidationReport[] memory jobs =
-            abi.decode(report, (LiquidationReport[]));
-
-        for (uint256 i = 0; i < jobs.length; i++) {
-            _executeOne(jobs[i]);
+        callCount++;
+        lastRawReport = report;
+        // check for zero bytes
+        if(report.length == 0) revert InvalidReport();
+        // decode
+        try this.decodeReport(report) returns (LiquidationReport[] memory jobs) {
+            if(jobs.length == 0) revert EmptyJobArray();
+            for (uint256 i = 0; i < jobs.length; i++) {
+                _executeOne(jobs[i]);
+            }
+        } catch (bytes memory err) {
+            lastDecodeError = err;
         }
     }
 
@@ -72,17 +83,8 @@ contract Liiquidate is ReceiverTemplate {
         string memory protocolName = job.protocol;
         address adapterAddr = registry.getAdapter(protocolName);
 
-        // Check not zero address
-        if (adapterAddr == address(0)) {
-            emit LiquidationExecuted(
-                job.protocol,
-                job.user,
-                address(0),
-                false
-            );
-            return;
-        }
-        // Check job data
+        // Check for zero address
+        if(adapterAddr == address(0)) revert AdapterNotFound(job.protocol);
         if(
             job.user == address(0) ||
             job.collateralAsset == address(0) ||
@@ -119,4 +121,21 @@ contract Liiquidate is ReceiverTemplate {
             resp
         );
     }
+
+    function decodeReport(bytes calldata report) 
+        external 
+        pure 
+        returns (LiquidationReport[] memory) 
+    {
+        return abi.decode(report, (LiquidationReport[]));
+    }
+
+    function decodeLastReport() 
+        external 
+        view 
+        returns (LiquidationReport[] memory) 
+    {
+        return abi.decode(lastRawReport, (LiquidationReport[]));
+    }
+
 }
