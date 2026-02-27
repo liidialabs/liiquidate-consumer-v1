@@ -24,18 +24,18 @@ contract HelperConfig is Script {
 
     address public constant forwarderAddress = 0x15fC6ae953E024d975e77382eEeC56A9101f9F88; 
 
-    address public constant uniswapV4PoolAddress = 0xdb04b6E343E627d0Bbb27be89acbaAAa725ed4e7;
-    address public constant aaveV3PoolAddress = 0x05c19F220705dcfd95850a108852116a04471805;
-    address public constant adapterRegistryAddress = 0x23402f076cfBB11b70f47422dF36EB3795fDabdc;
-    address public constant flashLoanRouterAddress = 0x0A8D5CE8f56Bbd02b054e8894E5263a7c308eD30;
-    address public constant universalSwapRouterAddress = 0xf5c3deBc4cf1598bb506C3e7ae85f415Ab81e053;
-    address public constant liiquidateAddress = 0x79cDbbefC1b8fe6d907Cf439FF8897FE67d2EbEE;
-    address public constant uniswapV4AdapterAddress = 0xFe041876187AA9912F401ef559Ffab3B87049628;
-    address public constant uniswapV4FlashloanAddress = 0xb9F26047345f0d9644Cf773F68cB2bCa6D536D83;
-    address public constant aaveV3FlashloanAddress = 0xBFCdbD2055C77D080204908071904Ac9Ee966F63;
+    address public constant uniswapV4PoolAddress = 0xdB3Be29F46988C7cb8517aB4152982e5ac318222;
+    address public constant aaveV3PoolAddress = 0xf546bCddbBAE1446EB9B5BE9a411BE8B81e8475A;
+    address public constant adapterRegistryAddress = 0x4CB625A5249397f19B4CC536A6E9188326f6c407;
+    address public constant flashLoanRouterAddress = 0x9C94Fa6637B37B5e7507937a83955B2c616Eeac4;
+    address public constant universalSwapRouterAddress = 0xe727F23641399B9869c4e96ae605b09a6459B4a1;
+    address public constant liiquidateAddress = 0x898E7153F0F4A209b277D21f62111aeE28537dCb;
+    address public constant uniswapV4AdapterAddress = 0x04bEC3Af60eC545BbEfC1B14411D72dcDC654684;
+    address public constant uniswapV4FlashloanAddress = 0xec5f7FBC9C6751f24E7a91A0f84780ab1044BD5B;
+    address public constant aaveV3FlashloanAddress = 0xd34aa92863367e71CB3f007e08f0ddCb1a9E1cC4;
 
-    address public constant mockChainlinkOracle = 0x45B9FB5ff8871BEcA4CbCceA02647BAf6648c286;
-    address public constant liiBorrowV1AdapterAddress = 0x86FC5bb9F9Ab147c2D4A087CE8013DaA58b7C3fd;
+    address public constant mockChainlinkOracle = 0xaeEffddcC3095DC4037D58B654a371b7Ff679F30;
+    address public constant liiBorrowV1AdapterAddress = 0xb4Bae94D879888EbB1e3f8e4D73ddD9a49dACFC9;
 
     uint256 public deployerKey = vm.envUint("PRIVATE_KEY_DEPLOYER");
 
