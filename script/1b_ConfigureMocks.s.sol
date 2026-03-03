@@ -17,6 +17,9 @@ import {MockV3Aggregator} from "../test/mocks/MockChainlinkOracle.sol";
 import {MockERC20} from "../test/mocks/MockERC20.sol";
 import {ISwapAdapter} from "../src/interfaces/swapAdapter/ISwapAdapter.sol";
 
+/// @title ConfigureMocks
+/// @notice Configures mock contracts for local testing environment
+/// @dev Sets up MockAaveV3Pool and MockUniswapV4PoolManager with initial liquidity and configurations
 contract ConfigureMocks is Script {
     using PoolIdLibrary for PoolKey;
 
@@ -29,53 +32,47 @@ contract ConfigureMocks is Script {
     MockERC20 USDC;
     MockERC20 WETH;
 
-    // Initial liquidity amounts for the mock pools
-    uint256 constant INITIAL_USDC_BALANCE = 1_000_000e6; // 1 million USDC with 6 decimals
-    uint256 constant INITIAL_WETH_BALANCE = 1_000_000e18; // 1 million WETH with 18 decimals
+    /// @notice Initial USDC balance for mock pools (1 million USDC)
+    uint256 constant INITIAL_USDC_BALANCE = 1_000_000e6;
+    /// @notice Initial WETH balance for mock pools (1 million WETH)
+    uint256 constant INITIAL_WETH_BALANCE = 1_000_000e18;
+    /// @notice Uniswap V4 pool fee tier (0.3%)
+    uint24 constant POOL_FEE = 3000;
 
-    uint24 constant POOL_FEE = 3000; // 0.3% fee tier for Uniswap V4
-
+    /// @notice Main configuration function
+    /// @dev Deploys mock price feed, configures Aave V3 and Uniswap V4 pools
     function run() public {
-        // deploy helper config
         helperConfig = new HelperConfig();
 
         vm.startBroadcast(helperConfig.deployerKey());
 
-        // deploy WETH/USD mock price feed, initial price $2000
         priceFeed = new MockV3Aggregator(8, 2000e8, "WETH/USD");
 
-        // deploy mock ERC20 tokens
         USDC = MockERC20(helperConfig.USDC());
         WETH = MockERC20(helperConfig.WETH());
 
-        // Create contract instances
         aaveV3Pool = MockAaveV3Pool(payable(helperConfig.aaveV3PoolAddress()));
         uniswapV4Pool = MockUniswapV4PoolManager(payable(helperConfig.uniswapV4PoolAddress()));
         uniswapAdapter = UniswapV4Adapter(payable(helperConfig.uniswapV4AdapterAddress()));
 
-        // Aave V3
         _configureAaveV3Pool(aaveV3Pool);
-        // Uniswap V4
         _configureUniswapV4Pool(uniswapV4Pool);
 
-        /// LOGS
         console2.log("Completed configuration of mock contracts:");
         console2.log("Mock WETH/USD price feed address:", address(priceFeed));
 
         vm.stopBroadcast();
-
     }
 
-    ////////// CONFIGURE AAVE V3 MOCK POOL ///////////
-
+    /// @notice Configures Aave V3 mock pool with supported assets
+    /// @dev Sets USDC and WETH as supported assets with initial balances
+    /// @param _aaveV3Pool The Aave V3 pool to configure
     function _configureAaveV3Pool(
         MockAaveV3Pool _aaveV3Pool
     ) internal {
-        // Set USDC (debt token) 
         _aaveV3Pool.setAssetSupported(address(USDC), true);
         _aaveV3Pool.setAssetReservement(address(USDC), INITIAL_USDC_BALANCE);
         USDC.mint(address(aaveV3Pool), INITIAL_USDC_BALANCE);
-        // Set WETH (collateral token)
         _aaveV3Pool.setAssetSupported(address(WETH), true);
         _aaveV3Pool.setAssetReservement(address(WETH), INITIAL_WETH_BALANCE);
         WETH.mint(address(aaveV3Pool), INITIAL_WETH_BALANCE);
@@ -83,38 +80,33 @@ contract ConfigureMocks is Script {
         console2.log("Configured MockAaveV3Pool with USDC and WETH support");
     }
 
-    ////////// CONFIGURE UNISWAP V4 MOCK POOL ///////////
-
+    /// @notice Configures Uniswap V4 mock pool with WETH/USDC pool
+    /// @dev Initializes pool with liquidity and registers swap path in adapter
+    /// @param _uniswapV4Pool The Uniswap V4 pool manager to configure
     function _configureUniswapV4Pool(
         MockUniswapV4PoolManager _uniswapV4Pool
     ) internal {
-        // Mint tokens to the pool
         USDC.mint(address(uniswapV4Pool), INITIAL_USDC_BALANCE);
         WETH.mint(address(uniswapV4Pool), INITIAL_WETH_BALANCE);
 
-        // Setup token path
         address[] memory path = new address[](2);
         path[0] = address(WETH);
         path[1] = address(USDC);
 
-        // Create PoolKey for the tokenA/tokenB pool
         PoolKey memory poolKey = PoolKey({
             currency0: Currency.wrap(address(WETH)),
             currency1: Currency.wrap(address(USDC)),
             fee: uint24(POOL_FEE),
-            tickSpacing: 60,  // Adjust based on your fee tier
-            hooks: IHooks(address(0))  // No hooks, or use your hooks address
+            tickSpacing: 60,
+            hooks: IHooks(address(0))
         });
 
-        // Encode the PoolKey (not the pool manager address)
         bytes[] memory poolData = new bytes[](1);
         poolData[0] = abi.encode(poolKey);
 
-        // Setup fees array
         uint24[] memory fees = new uint24[](1);
         fees[0] = uint24(POOL_FEE);
 
-        // Initialize the pool in the mock (so sqrtPriceX96 != 0)
         uint160 sqrtPriceX96 = 3543191142285914205922034323214;
         _uniswapV4Pool.initialize(
             poolKey,
@@ -122,7 +114,6 @@ contract ConfigureMocks is Script {
             1000e18
         );
 
-        // Register the swap path
         uniswapAdapter.registerSwapPath(
             address(WETH),
             address(USDC),
@@ -133,5 +124,4 @@ contract ConfigureMocks is Script {
 
         console2.log("Configured MockUniswapV4Pool with WETH/USDC pool and registered swap path in adapter");
     }
-
 }
