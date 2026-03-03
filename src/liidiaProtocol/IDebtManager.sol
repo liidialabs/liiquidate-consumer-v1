@@ -1,9 +1,12 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
 
-/// @title IDebtManager - Debt management utilities for LiiLend V1
-/// @notice Utility interface for computing collateral seizure amounts, liquidation bonuses, and user health
-///         metrics used by LiiLend V1 liquidations and adapters.
+/** 
+ * @title IDebtManager - Debt management utilities for LiiBorrow V1
+ * @author Liidia Team
+ * @notice Utility interface for computing collateral seizure amounts, liquidation bonuses, and user health
+ *         metrics used by LiiLend V1 liquidations and adapters.
+*/
 interface IDebtManager {
 
     /**

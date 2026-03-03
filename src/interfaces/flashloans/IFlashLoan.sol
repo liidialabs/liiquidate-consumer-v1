@@ -1,9 +1,12 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
 
-/// @title IFlashLoan
-/// @notice Interface for flash loan providers
-/// @dev Implementations must provide flash loan functionality for liquidation execution
+/**
+ * @title IFlashLoan
+ * @author Liidia Team
+ * @notice Interface for flash loan providers
+ * @dev Implementations must provide flash loan functionality for liquidation execution
+ */
 interface IFlashLoan {
     /// @notice Initiates a flash loan for liquidation
     /// @dev Called by FlashLoanRouter to borrow funds, execute liquidation, and repay

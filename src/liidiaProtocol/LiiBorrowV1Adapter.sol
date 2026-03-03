@@ -4,10 +4,13 @@ pragma solidity ^0.8.20;
 import { ILiquidationAdapter } from "../interfaces/liquidationAdapter/ILiquidationAdapter.sol";
 import { IDebtManager } from "./IDebtManager.sol";
 
-/// @title LiiBorrowV1Adapter
-/// @notice Adapter for LiiBorrow V1 protocol liquidations
-/// @dev Implements ILiquidationAdapter to normalize liquidation positions
-///      from LiiBorrow V1 lending protocol
+/**
+ * @title LiiBorrowV1Adapter
+ * @author Liidia Team
+ * @notice Adapter for LiiBorrow V1 protocol liquidations
+ * @dev Implements ILiquidationAdapter to normalize liquidation positions
+ *      from LiiBorrow V1 lending protocol
+ */
 contract LiiBorrowV1Adapter is ILiquidationAdapter {
     /// @notice The LiiBorrow DebtManager contract
     IDebtManager private immutable debtManager;
@@ -23,12 +26,15 @@ contract LiiBorrowV1Adapter is ILiquidationAdapter {
 
     /// @notice Expected drop in value due to fees and slippage (90%)
     uint256 private constant EST_DROP_TO = 0.9e4;
+
+    //// ERRORS ////
     
     /// @notice Thrown when an address is zero
     error InvalidAddress();
 
     /// @notice Thrown when amount is zero
     error InvalidAmount();
+
 
     /// @notice Initializes the adapter
     /// @param _debtManager Address of the LiiBorrow DebtManager

@@ -7,12 +7,15 @@ import { AdapterRegistry } from "./AdapterRegistry.sol";
 import { FlashLoanRouter } from "./FlashLoanRouter.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
-/// @title Liiquidate
-/// @notice Automated liquidation contract that processes Chainlink automation reports
-///         and executes liquidations across multiple lending protocols using flash loans.
-/// @dev Inherits from ReceiverTemplate for Chainlink automation integration.
-///      Liquidations are executed by fetching adapter addresses from the registry,
-///      then routing through the FlashLoanRouter for flash loan execution.
+/**
+ * @title Liiquidate
+ * @author Liidia Team
+ * @notice Automated liquidation contract that processes Chainlink automation reports
+ *         and executes liquidations across multiple lending protocols using flash loans.
+ * @dev Inherits from ReceiverTemplate for Chainlink automation integration.
+ *      Liquidations are executed by fetching adapter addresses from the registry,
+ *      then routing through the FlashLoanRouter for flash loan execution.
+ */
 contract Liiquidate is ReceiverTemplate {
     /// @notice Data structure containing all information needed to execute a single liquidation
     /// @dev Used for decoding reports from Chainlink automation
@@ -81,6 +84,7 @@ contract Liiquidate is ReceiverTemplate {
     /// @notice Thrown when no adapter is registered for the given protocol
     /// @param protocol The protocol identifier that was not found
     error AdapterNotFound(string protocol);
+    
 
     /// @notice Initializes the Liiquidate contract
     /// @param _debtAsset Address of the debt asset (e.g., USDC)

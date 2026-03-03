@@ -6,6 +6,7 @@ import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 
 /**
  * @title UniversalSwapRouter
+ * @author Liidia Team
  * @notice Routes swaps across multiple DEX protocols with fallback and circuit breaker support
  * @dev Supports multi-hop swaps, automatic protocol fallback, and circuit breakers
  *      for improved reliability when executing liquidation swaps
@@ -51,6 +52,8 @@ contract UniversalSwapRouter is Ownable {
 
     /// @notice Global fallback configuration
     FallbackConfig public fallbackConfig;
+
+    //// EVENTS ////
 
     /// @notice Emitted when a swap is attempted
     /// @param protocol The protocol ID used
@@ -112,6 +115,8 @@ contract UniversalSwapRouter is Ownable {
     /// @param providers Array of protocol IDs in priority order
     event ProtocolPrioritySet(bytes32[] providers);
 
+    //// ERRORS ////
+
     /// @notice Errors
 
     /// @notice Thrown when an address parameter is zero
@@ -128,6 +133,7 @@ contract UniversalSwapRouter is Ownable {
 
     /// @notice Thrown when an amount is zero
     error InvalidAmount();
+
 
     /// @notice Initializes contract with default fallback configuration
     constructor() Ownable(msg.sender) {
@@ -251,7 +257,6 @@ contract UniversalSwapRouter is Ownable {
         return protocolHealth[protocol];
     }
 
-    // REDO
     /// @notice Quotes the best protocol for a given swap parameters
     /// @dev Simulates quotes from all available protocols and returns the best one
     /// @param params The multi-hop swap parameters
@@ -308,7 +313,6 @@ contract UniversalSwapRouter is Ownable {
         require(bestProtocol != bytes32(0), "No valid quotes");
     }
 
-    // REDO
     /// @notice Gets a quote from a specific protocol
     /// @param protocol The protocol ID to query
     /// @param params The multi-hop swap parameters

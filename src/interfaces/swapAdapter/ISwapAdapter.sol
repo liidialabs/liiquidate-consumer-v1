@@ -1,9 +1,12 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
 
-/// @title ISwapAdapter
-/// @notice Universal interface that all DEX swap adapters must implement
-/// @dev Provides a normalized interface for executing multi-hop swaps across different DEX protocols
+/**
+ * @title ISwapAdapter
+ * @author Liidia Team
+ * @notice Universal interface that all DEX swap adapters must implement
+ * @dev Provides a normalized interface for executing multi-hop swaps across different DEX protocols
+ */
 interface ISwapAdapter {
     
     /// @notice Single hop swap parameters

@@ -4,10 +4,13 @@ pragma solidity ^0.8.20;
 import { Ownable } from "@openzeppelin/contracts/access/Ownable.sol";
 import { ILiquidationAdapter } from "./interfaces/liquidationAdapter/ILiquidationAdapter.sol";
 
-/// @title AdapterRegistry
-/// @notice Registry for mapping protocol names to liquidation adapter addresses
-/// @dev Allows owner to register and remove adapters that implement ILiquidationAdapter
-///      Used by Liiquidate to dynamically resolve which adapter to use for each protocol
+/**
+ * @title AdapterRegistry
+ * @author Liidia Team
+ * @notice Registry for mapping protocol names to liquidation adapter addresses
+ * @dev Allows owner to register and remove adapters that implement ILiquidationAdapter
+ *      Used by Liiquidate to dynamically resolve which adapter to use for each protocol
+*/
 contract AdapterRegistry is Ownable {
 
     /// @notice Maps protocol name string to adapter address
@@ -43,6 +46,7 @@ contract AdapterRegistry is Ownable {
 
     /// @notice Thrown when attempting to remove a non-existent protocol
     error ProtocolNonExistant();
+    
 
     /// @notice Initializes the AdapterRegistry
     constructor() Ownable(msg.sender) {}
