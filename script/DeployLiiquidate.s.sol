@@ -8,36 +8,35 @@ import {Liiquidate} from "../src/Liiquidate.sol";
 import {FlashLoanRouter} from "../src/FlashLoanRouter.sol";
 import {AdapterRegistry} from "../src/AdapterRegistry.sol";
 
+/// @title DeployLiiquidate
+/// @notice Deploys the Liiquidate consumer contract
+/// @dev Deploys Liiquidate with existing FlashLoanRouter and AdapterRegistry
 contract DeployLiiquidate is Script {
     HelperConfig helperConfig;
     FlashLoanRouter flashRouter;
     Liiquidate liiquidate;
     AdapterRegistry adapterRegistry;
 
-
+    /// @notice Main deployment function
+    /// @dev Deploys Liiquidate and registers it with existing infrastructure
     function run() public {
-        // deploy helper config
         helperConfig = new HelperConfig();
 
-        // Create contract instance
         flashRouter = FlashLoanRouter(helperConfig.flashLoanRouterAddress());
         adapterRegistry = AdapterRegistry(helperConfig.adapterRegistryAddress());
 
         vm.startBroadcast(helperConfig.deployerKey());
         
-        // deploy Liiquidate
         liiquidate = new Liiquidate(
+            helperConfig.USDC(),
             address(adapterRegistry), 
             address(flashRouter), 
             helperConfig.forwarderAddress()
         );
-        // Log
         console2.log("Successfully Deployed Liiquidate Consumer Contract!");
 
         vm.stopBroadcast();
 
-        // Log health factor after price drop
         console2.log("Contract Deployed At: ", address(liiquidate));
-
     }
 }

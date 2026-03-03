@@ -217,6 +217,7 @@ contract LiiquidateTest is Test {
         /////// LIIQUIDATE /////////
 
         liiquidate = new Liiquidate(
+            address(debtToken),
             address(registry),
             address(flashRouter),
             address(chainLinkForwarder)

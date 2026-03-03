@@ -17,6 +17,9 @@ import {PoolIdLibrary, PoolId} from "@uniswap/v4-core/src/types/PoolId.sol";
 import {IHooks} from "@uniswap/v4-core/src/interfaces/IHooks.sol";
 import {Currency} from "@uniswap/v4-core/src/types/Currency.sol";
 
+/// @title DropAssetPrices
+/// @notice Drops asset prices to trigger liquidation conditions for testing
+/// @dev Updates Chainlink oracle, Aave oracle, and Uniswap V4 pool price to make user liquidatable
 contract DropAssetPrices is Script {
     using PoolIdLibrary for PoolKey;
 
@@ -28,14 +31,16 @@ contract DropAssetPrices is Script {
     LiiBorrowV1Adapter liiAdapter;
     FlashLoanRouter flashRouter;
 
-    int256 constant NEW_PRICE = 1600e8; // Drop to $1600
+    /// @notice New WETH price ($1600)
+    int256 constant NEW_PRICE = 1600e8;
+    /// @notice User private key from environment
     uint256 private userKey = vm.envUint("PRIVATE_KEY_USER");
 
+    /// @notice Main function to drop asset prices
+    /// @dev Updates oracles and pool price to trigger liquidation eligibility
     function run() public {
-        // deploy helper config
         helperConfig = new HelperConfig();
 
-        // Create contract instance
         priceFeed = MockV3Aggregator(helperConfig.mockChainlinkOracle());
         aaveOracle = IMockAaveOracle(helperConfig.mockAaveV3Oracle());
         debtManager = IDebtManager(helperConfig.debtManagerAddress());
@@ -43,7 +48,6 @@ contract DropAssetPrices is Script {
         liiAdapter = LiiBorrowV1Adapter(helperConfig.liiBorrowV1AdapterAddress());
         flashRouter = FlashLoanRouter(helperConfig.flashLoanRouterAddress());
 
-        // Log health factor before price drop
         uint256 hfBefore = debtManager.getHealthFactor(vm.addr(userKey));
         bool isLiquidatableBefore = debtManager.isLiquidatable(vm.addr(userKey));
         (uint256 aaveDebtBefore, ) = debtManager.getUserDebt(vm.addr(userKey));
@@ -54,10 +58,6 @@ contract DropAssetPrices is Script {
 
         vm.startBroadcast(helperConfig.deployerKey());
         
-        // set proxy
-        // flashRouter.setProxyAddress(helperConfig.liiquidateAddress());
-        
-        // adjust sqrtPrice
         PoolKey memory poolKey = PoolKey({
             currency0: Currency.wrap(helperConfig.WETH()),
             currency1: Currency.wrap(helperConfig.USDC()),
@@ -65,19 +65,16 @@ contract DropAssetPrices is Script {
             tickSpacing: 60, 
             hooks: IHooks(address(0)) 
         });
-        uint160 newSqrtPriceX96 = 3162277660168379331998893544432; // for 1600USDC/1WETH
+        uint160 newSqrtPriceX96 = 3162277660168379331998893544432;
 
         uniswapV4Pool.setSqrtPrice(poolKey, newSqrtPriceX96);
 
-        // Update price to simulate price drop on chainlink oracle & Aave oracle
         aaveOracle.setAssetPrice(helperConfig.WETH(), uint256(NEW_PRICE));
         priceFeed.updateAnswer(NEW_PRICE);
-        // Log
         console2.log("Successfully dropped asset price to $%d!", NEW_PRICE / 1e8);
 
         vm.stopBroadcast();
 
-        // Log health factor after price drop
         uint256 hfAfter = debtManager.getHealthFactor(vm.addr(userKey));
         bool isLiquidatableAfter = debtManager.isLiquidatable(vm.addr(userKey));
         (uint256 aaveDebtAfter, ) = debtManager.getUserDebt(vm.addr(userKey));
@@ -90,6 +87,5 @@ contract DropAssetPrices is Script {
         console2.log(">>> ADAPTER <<<");
         console2.log("isLiquidatable: %s", riskState.liquidatable);
         console2.log("HF: %s", riskState.riskMetric);
-
     }
 }

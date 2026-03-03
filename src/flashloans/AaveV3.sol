@@ -12,35 +12,68 @@ import {UniversalSwapRouter} from "../UniversalSwapRouter.sol";
 import {LiquidationParams, LiquidationExecuted} from "../types/DataTypes.sol";
 
 /**
- * @title FlashLiquidator
- * @notice Executes flash loan liquidations with pluggable swap providers
+ * @title AaveV3FlashLoan
+ * @notice Aave V3 flash loan provider for liquidation execution
+ * @dev Implements IFlashLoan to provide flash loans via Aave V3 pool.
+ *      After receiving flash loan, executes liquidation, swaps collateral,
+ *      repays the flash loan, and sends profit to caller.
  */
 contract AaveV3 is Ownable, IFlashLoan {
     using SafeERC20 for IERC20;
 
+    /// @notice The Aave V3 Pool contract
     IPool public immutable pool;
+
+    /// @notice The UniversalSwapRouter for swapping collateral
     UniversalSwapRouter public immutable swapRouter;
 
+    /// @notice Unique identifier for this provider
     bytes32 public constant PROVIDER_ID = keccak256("AAVE_V3");
 
+    /// @notice Accumulates profit per debt asset
     mapping(address => uint256) private accumProfit;
+
+    /// @notice Tracks which debt assets have been recorded
     mapping(address => bool) private isRecorded;
 
+    /// @notice List of unique debt assets covered
     address[] debtCovered;
+
+    /// @notice Counter for total flash loan calls
     uint256 public callCount;
 
     // ERRORS
 
+    /// @notice Thrown when an address parameter is zero
     error InvalidAddress();
+
+    /// @notice Thrown when caller is not the Aave Pool
     error NotPoolManager();
+
+    /// @notice Thrown when amount is zero
     error NoZeroAmount();
+
+    /// @notice Thrown when initiator is invalid
     error InvalidInitiator();
+
+    /// @notice Thrown when liquidation call fails
     error LiquidationFailed();
+
+    /// @notice Thrown when no collateral is received from liquidation
     error NoCollateralSeized();
+
+    /// @notice Thrown when swapped output is insufficient to repay loan
     error InsufficientSwapOutput();
+
+    /// @notice Thrown when unable to repay the flash loan
     error CannotRepayLoan();
+
+    /// @notice Thrown when liquidation is not profitable
     error NotProfitable();
 
+    /// @notice Initializes the AaveV3 flash loan provider
+    /// @param _pool Address of Aave V3 Pool
+    /// @param _swapRouter Address of UniversalSwapRouter
     constructor(
         address _pool, 
         address _swapRouter
@@ -56,11 +89,19 @@ contract AaveV3 is Ownable, IFlashLoan {
         callCount = 0;
     }
 
+    /// @notice Modifier to ensure only Aave Pool can call certain functions
     modifier onlyPoolManager() {
         _onlyPoolManager();
         _;
     }
 
+    /// @notice Initiates a flash loan for liquidation
+    /// @dev Called by FlashLoanRouter to start the flash loan flow
+    /// @param debtAsset The token to borrow
+    /// @param collateralAsset The collateral token to receive
+    /// @param debtToCover Amount of debt to cover (borrowed)
+    /// @param targetContract Liquidation adapter to call
+    /// @param data Calldata for liquidation adapter
     function flashLoan(
         address debtAsset,
         address collateralAsset,
@@ -98,6 +139,14 @@ contract AaveV3 is Ownable, IFlashLoan {
         });
     }
 
+    /// @notice Aave V3 callback for flash loan execution
+    /// @dev Executes: 1) Liquidate position, 2) Swap collateral, 3) Repay flash loan, 4) Send profit
+    /// @param asset The borrowed asset address
+    /// @param amount The amount borrowed
+    /// @param fee The flash loan fee
+    /// @param initiator The caller of the flash loan (this contract)
+    /// @param params Encoded LiquidationParams
+    /// @return true if execution succeeds
     function executeOperation(
         address asset,
         uint256 amount,
@@ -192,6 +241,10 @@ contract AaveV3 is Ownable, IFlashLoan {
         return true;
     }
 
+    /// @notice Rescues stranded tokens from the contract
+    /// @dev Only callable by owner
+    /// @param token The token address to rescue
+    /// @param amount The amount to rescue
     function rescueTokens(
         address token, 
         uint256 amount
@@ -199,14 +252,19 @@ contract AaveV3 is Ownable, IFlashLoan {
         IERC20(token).safeTransfer(owner(), amount);
     }
 
+    /// @notice Returns the provider identifier
+    /// @return The bytes32 provider ID
     function id() external pure override returns (bytes32) {
         return PROVIDER_ID;
     }
 
+    /// @notice Accepts ETH deposits
     receive() external payable {}
 
     //// INTERNAL ////
 
+    /// @notice Approves swap adapters to spend a token
+    /// @param token The token to approve
     function _approveSwapAdapters(address token) internal {
         uint256 max = type(uint256).max;
         address[] memory swapAdapters = swapRouter.getSwapAdapters();
@@ -219,20 +277,28 @@ contract AaveV3 is Ownable, IFlashLoan {
         }
     }
 
+    /// @notice Verifies caller is the Aave Pool
     function _onlyPoolManager() internal view {
         if(msg.sender != address(pool)) revert NotPoolManager();
     }
 
     //// VIEW ////
 
+    /// @notice Returns total number of flash loan calls
+    /// @return The call count
     function getCallCount() external view returns(uint256) {
         return callCount;
     }
 
+    /// @notice Returns list of unique debt assets covered
+    /// @return list Array of debt asset addresses
     function getDebtsCovered() external view returns(address[] memory list) {
         list = debtCovered;
     }
 
+    /// @notice Returns accumulated profit for a specific asset
+    /// @param asset The debt asset address
+    /// @return amount Total profit in that asset
     function getProfitPerAsset(address asset) external view returns(uint256 amount) {
         amount = accumProfit[asset];
     }

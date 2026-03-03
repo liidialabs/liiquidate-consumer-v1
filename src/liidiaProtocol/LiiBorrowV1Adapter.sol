@@ -4,34 +4,56 @@ pragma solidity ^0.8.20;
 import { ILiquidationAdapter } from "../interfaces/liquidationAdapter/ILiquidationAdapter.sol";
 import { IDebtManager } from "./IDebtManager.sol";
 
-/// @title LiiLendV1Adapter
-/// @notice ...
-/// @dev ...
+/// @title LiiBorrowV1Adapter
+/// @notice Adapter for LiiBorrow V1 protocol liquidations
+/// @dev Implements ILiquidationAdapter to normalize liquidation positions
+///      from LiiBorrow V1 lending protocol
 contract LiiBorrowV1Adapter is ILiquidationAdapter {
+    /// @notice The LiiBorrow DebtManager contract
     IDebtManager private immutable debtManager;
 
+    /// @notice Base precision for calculations (1e18)
     uint256 private constant BASE_PRECISION = 1e18;
-    uint256 private constant PERCENT_PRECISION = 1e4; // 100%
-    uint256 private constant CLOSE_FACTOR = 0.5e4; // 50%
-    uint256 private constant EST_DROP_TO = 0.9e4; // 90%
+
+    /// @notice Percent precision (1e4 = 100%)
+    uint256 private constant PERCENT_PRECISION = 1e4;
+
+    /// @notice Maximum portion of debt that can be covered (50%)
+    uint256 private constant CLOSE_FACTOR = 0.5e4;
+
+    /// @notice Expected drop in value due to fees and slippage (90%)
+    uint256 private constant EST_DROP_TO = 0.9e4;
     
+    /// @notice Thrown when an address is zero
     error InvalidAddress();
+
+    /// @notice Thrown when amount is zero
     error InvalidAmount();
 
+    /// @notice Initializes the adapter
+    /// @param _debtManager Address of the LiiBorrow DebtManager
     constructor(address _debtManager) {
         if(_debtManager == address(0)) revert InvalidAddress();
 
         debtManager = IDebtManager(_debtManager);
     }
 
+    /// @notice Returns the protocol name
+    /// @return "LIIBORROW_v1"
     function getProtocolName() external override pure returns (string memory) {
         return "LIIBORROW_v1";
     }
 
+    /// @notice Returns this adapter's address
+    /// @return Address of this adapter
     function getAdapterAddress() external override view returns (address) {
         return address(this);
     }
 
+    /// @notice Gets the risk state for a user
+    /// @dev Queries DebtManager for account data and liquidation status
+    /// @param user The user address to check
+    /// @return rs RiskState containing health metrics
     function getRiskState(
         address user
     ) external override returns (RiskState memory rs) {
@@ -53,6 +75,11 @@ contract LiiBorrowV1Adapter is ILiquidationAdapter {
         });
     }
 
+    /// @notice Gets the liquidation status for a user
+    /// @dev Calculates maximum debt to cover, expected return, and bonus
+    /// @param user The user address to check
+    /// @param collateralAsset The collateral asset address
+    /// @return lp LiquidationStatus with amounts and bonus info
     function getLiquidationStatus(
         address user,
         address collateralAsset
@@ -89,6 +116,13 @@ contract LiiBorrowV1Adapter is ILiquidationAdapter {
         });
     }
 
+    /// @notice Builds the execution payload for liquidation
+    /// @dev Encodes the liquidate function call for the DebtManager
+    /// @param user The user to liquidate
+    /// @param debtToCover Amount of debt to cover
+    /// @param debtAsset The debt asset address
+    /// @param collateralAsset The collateral asset address
+    /// @return payload ExecutionPayload with target and calldata
     function buildExecutionPayload(
         address user,
         uint256 debtToCover,

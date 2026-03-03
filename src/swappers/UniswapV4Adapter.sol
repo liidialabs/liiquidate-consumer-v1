@@ -19,36 +19,74 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {MAX_SQRT_PRICE, MIN_SQRT_PRICE} from "../types/Constants.sol";
 
+/// @title UniswapV4Adapter
+/// @notice Uniswap V4 swap adapter implementing ISwapAdapter
+/// @dev Handles multi-hop swaps across Uniswap V4 pools with flash loan support
 contract UniswapV4Adapter is Ownable, ISwapAdapter, IUnlockCallback {
     using SafeERC20 for IERC20;
     using StateLibrary for IPoolManager;
     using PoolIdLibrary for PoolKey;
 
+    /// @notice The Uniswap V4 PoolManager contract
     IPoolManager public immutable poolManager;
 
+    /// @notice Provider identifier for this adapter
     bytes32 private constant PROTOCOL_ID = keccak256("UNISWAP_V4");
 
+    /// @notice Counter for total swap calls
     uint256 private callCount;
 
+    /// @notice Maps token pair to registered swap path
     mapping(bytes32 => ISwapAdapter.SwapPath) private registeredPaths;
 
     /// ERRORS ///
 
+    /// @notice Thrown when swap output is below minimum
     error InsufficientSwapOutput();
+
+    /// @notice Thrown when input exceeds expected amount
     error ExcessInputAmount();
+
+    /// @notice Thrown when pool is not initialized
     error PoolNotInitialized();
+
+    /// @notice Thrown when tokens don't match pool tokens
     error TokenMismatch();
+
+    /// @notice Thrown when fee tiers don't match
     error FeeMismatch();
+
+    /// @notice Thrown when address is zero
     error InvalidAddress();
+
+    /// @notice Thrown when path has fewer than 2 tokens
     error PathHasLessTokens();
+
+    /// @notice Thrown when input token doesn't match path start
     error TokenInMismatch();
+
+    /// @notice Thrown when output token doesn't match path end
     error TokenOutMismatch();
+
+    /// @notice Thrown when pool data length doesn't match tokens - 1
     error InsufficientPoolKeys();
+
+    /// @notice Thrown when fees array length doesn't match pool data
     error InsufficientFeesToPoolKeys();
+
+    /// @notice Thrown when price or liquidity is zero
     error InvalidPriceOrLiquidity();
+
+    /// @notice Thrown when caller is not PoolManager
     error NotPoolManager();
+
+    /// @notice Thrown when output is below minimum after swap
+    /// @param finalAmountOut Actual output received
+    /// @param minAmountOut Minimum output required
     error InsufficientAmountOut(uint256 finalAmountOut, uint256 minAmountOut);
 
+    /// @notice Initializes the adapter
+    /// @param _poolManager Address of Uniswap V4 PoolManager
     constructor(address _poolManager) Ownable(msg.sender) {
         require(_poolManager != address(0), "Invalid Address");
         poolManager = IPoolManager(_poolManager);
@@ -56,11 +94,18 @@ contract UniswapV4Adapter is Ownable, ISwapAdapter, IUnlockCallback {
         callCount = 0;
     }
 
+    /// @notice Modifier to ensure only PoolManager can call
     modifier onlyPoolManager() {
         _onlyPoolManager();
         _;
     }
 
+    /// @notice Executes a multi-hop swap
+    /// @dev Supports both exact input and exact output swaps
+    /// @param params The multi-hop swap parameters
+    /// @param loanProviderId The flash loan provider ID for routing
+    /// @return amountIn Actual input amount used
+    /// @return amountOut Actual output amount received
     function swapMultiHop(
         MultiHopParams calldata params,
         bytes32 loanProviderId
@@ -92,6 +137,10 @@ contract UniswapV4Adapter is Ownable, ISwapAdapter, IUnlockCallback {
         }
     }
 
+    /// @notice Uniswap V4 callback for executing swaps during unlock
+    /// @dev Called by PoolManager when this contract initiates unlock
+    /// @param data Encoded params and swap path
+    /// @return Encoded amountIn and amountOut
     function unlockCallback(
         bytes calldata data
     ) external onlyPoolManager returns (bytes memory) {
@@ -107,6 +156,11 @@ contract UniswapV4Adapter is Ownable, ISwapAdapter, IUnlockCallback {
         return abi.encode(amountIn, amountOut);
     }
 
+    /// @notice Quotes a multi-hop swap (view function)
+    /// @dev Simulates swap without executing to get expected output
+    /// @param params The multi-hop swap parameters
+    /// @return amountIn Expected input amount
+    /// @return amountOut Expected output amount
     function quoteMultiHop(
         MultiHopParams calldata params
     ) external view override returns (uint256 amountIn, uint256 amountOut) {
@@ -168,10 +222,16 @@ contract UniswapV4Adapter is Ownable, ISwapAdapter, IUnlockCallback {
                 : (currentAmount, params.amountOut);
     }
 
+    /// @notice Returns the protocol identifier
+    /// @return PROTOCOL_ID (keccak256("UNISWAP_V4"))
     function protocolId() external pure override returns (bytes32) {
         return PROTOCOL_ID;
     }
 
+    /// @notice Validates if a swap path is supported
+    /// @dev Checks array lengths and validates each hop
+    /// @param path The swap path to validate
+    /// @return True if path is valid and supported
     function isPathSupported(
         SwapPath calldata path
     ) external view override returns (bool) {
@@ -195,6 +255,10 @@ contract UniswapV4Adapter is Ownable, ISwapAdapter, IUnlockCallback {
         return true;
     }
 
+    /// @notice Validates a specific hop in the swap path
+    /// @dev Checks pool exists and tokens match
+    /// @param path The swap path
+    /// @param hopIndex The index of the hop to validate
     function _validateHop(
         SwapPath calldata path,
         uint256 hopIndex
@@ -221,6 +285,13 @@ contract UniswapV4Adapter is Ownable, ISwapAdapter, IUnlockCallback {
         }
     }
 
+    /// @notice Registers a new swap path for a token pair
+    /// @dev Only callable by owner
+    /// @param tokenIn Input token address
+    /// @param tokenOut Output token address
+    /// @param path Array of token addresses in order
+    /// @param poolData Array of encoded PoolKeys for each hop
+    /// @param fees Array of fee tiers for each hop
     function registerSwapPath(
         address tokenIn,
         address tokenOut,
@@ -254,6 +325,10 @@ contract UniswapV4Adapter is Ownable, ISwapAdapter, IUnlockCallback {
         );
     }
 
+    /// @notice Retrieves the registered swap path for a token pair
+    /// @param tokenIn Input token address
+    /// @param tokenOut Output token address
+    /// @return path The registered SwapPath struct
     function getSwapPath(
         address tokenIn,
         address tokenOut
@@ -266,6 +341,10 @@ contract UniswapV4Adapter is Ownable, ISwapAdapter, IUnlockCallback {
 
     // Internal helper functions
 
+    /// @notice Settles a currency with the PoolManager
+    /// @param currency The currency to settle
+    /// @param from Address providing the tokens
+    /// @param amount Amount to settle
     function _settle(Currency currency, address from, uint256 amount) internal {
         IERC20(Currency.unwrap(currency)).safeTransferFrom(
             from,
@@ -275,10 +354,21 @@ contract UniswapV4Adapter is Ownable, ISwapAdapter, IUnlockCallback {
         poolManager.settle();
     }
 
+    /// @notice Takes tokens from the PoolManager
+    /// @param currency The currency to take
+    /// @param to Address to receive tokens
+    /// @param amount Amount to take
     function _take(Currency currency, address to, uint256 amount) internal {
         poolManager.take(currency, to, amount);
     }
 
+    /// @notice Quotes exact input single hop swap
+    /// @param amountIn Amount of input token
+    /// @param sqrtPriceX96 Current sqrt price
+    /// @param liquidity Pool liquidity
+    /// @param zeroForOne Swap direction flag
+    /// @param fee Pool fee tier
+    /// @return amountOut Expected output amount
     function _quoteExactInputSingle(
         uint256 amountIn,
         uint160 sqrtPriceX96,
@@ -316,6 +406,13 @@ contract UniswapV4Adapter is Ownable, ISwapAdapter, IUnlockCallback {
         }
     }
 
+    /// @notice Quotes exact output single hop swap
+    /// @param amountOut Desired output amount
+    /// @param sqrtPriceX96 Current sqrt price
+    /// @param liquidity Pool liquidity
+    /// @param zeroForOne Swap direction flag
+    /// @param fee Pool fee tier
+    /// @return amountIn Required input amount
     function _quoteExactOutputSingle(
         uint256 amountOut,
         uint160 sqrtPriceX96,
@@ -353,6 +450,10 @@ contract UniswapV4Adapter is Ownable, ISwapAdapter, IUnlockCallback {
         amountIn = (amountIn * 1000000) / (1000000 - fee) + 1;
     }
 
+    /// @notice Generates a key for storing/looking up swap paths
+    /// @param tokenIn Input token address
+    /// @param tokenOut Output token address
+    /// @return Key for path mapping
     function _getPathKey(
         address tokenIn,
         address tokenOut
@@ -360,6 +461,10 @@ contract UniswapV4Adapter is Ownable, ISwapAdapter, IUnlockCallback {
         return keccak256(abi.encodePacked(tokenIn, tokenOut));
     }
 
+    /// @notice Checks if a hop is valid (pool exists and tokens match)
+    /// @param path The swap path
+    /// @param hopIndex Index of the hop to check
+    /// @return True if hop is valid
     function _isHopValid(
         SwapPath calldata path,
         uint256 hopIndex
@@ -371,6 +476,12 @@ contract UniswapV4Adapter is Ownable, ISwapAdapter, IUnlockCallback {
         }
     }
 
+    /// @notice Executes the multi-hop swap
+    /// @dev Iterates through each pool in the path and executes swaps
+    /// @param params The swap parameters
+    /// @param path The registered swap path
+    /// @return amountIn Actual input amount used
+    /// @return amountOut Actual output amount received
     function _executeSwap(
         MultiHopParams memory params,
         SwapPath memory path
@@ -452,6 +563,7 @@ contract UniswapV4Adapter is Ownable, ISwapAdapter, IUnlockCallback {
         return (finalAmountIn, finalAmountOut);
     }
 
+    /// @notice Verifies caller is the PoolManager
     function _onlyPoolManager() internal view {
         if(msg.sender != address(poolManager)) revert NotPoolManager();
     }

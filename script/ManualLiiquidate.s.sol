@@ -9,36 +9,35 @@ import {AdapterRegistry} from "../src/AdapterRegistry.sol";
 import { ILiquidationAdapter } from "../src/interfaces/liquidationAdapter/ILiquidationAdapter.sol";
 import {MockERC20} from "../test/mocks/MockERC20.sol";
 
+/// @title ManualLiiquidate
+/// @notice Manually executes a liquidation for testing
+/// @dev Retrieves adapter from registry, builds execution payload, and triggers flash loan liquidation
 contract ManualLiiquidate is Script {
     HelperConfig helperConfig;
     FlashLoanRouter flashRouter;
     AdapterRegistry registry;
     MockERC20 usdc;
 
+    /// @notice Main liquidation function
+    /// @dev Executes a manual liquidation of a specific user position
     function run() public {
-        // deploy helper config
         helperConfig = new HelperConfig();
 
-        // Create contract instance
         registry = AdapterRegistry(helperConfig.adapterRegistryAddress());
         flashRouter = FlashLoanRouter(helperConfig.flashLoanRouterAddress());
         usdc = MockERC20(helperConfig.USDC());
 
         vm.startBroadcast(helperConfig.deployerKey());
         
-        // position liquidation data
         string memory protocolName = 'LIIBORROW_v1';
-        address user = 0xC099f8A2C5117C81652A506aFfE10a6E77e79808 ;
+        address user = 0xC099f8A2C5117C81652A506aFfE10a6E77e79808;
         uint256 debtToCover = 600e6;
         address debtAsset = 0xf8340a3BB21282Af32B567e0ACE1Cc5c4eF63a73;
         address collateralAsset = 0x394A1145Cc4480cD047ad065a5Ece23D4fcC2E1d;
 
-        // Get adapter address from registry
         address adapterAddr = registry.getAdapter(protocolName);
 
-        // Instantiate adapter
         ILiquidationAdapter adapter = ILiquidationAdapter(adapterAddr);
-        // Fetch target contract and callData
         ILiquidationAdapter.ExecutionPayload memory payload = adapter
             .buildExecutionPayload(
                 user,
@@ -75,8 +74,6 @@ contract ManualLiiquidate is Script {
 
         vm.stopBroadcast();
 
-        // Log health factor after price drop
         console2.log("Liquidation Success Status: ", resp);
-
     }
 }
