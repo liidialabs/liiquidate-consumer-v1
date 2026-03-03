@@ -15,10 +15,13 @@ import {UniversalSwapRouter} from "../UniversalSwapRouter.sol";
 import {IFlashLoan} from "../interfaces/flashloans/IFlashLoan.sol";
 import {LiquidationParams, LiquidationExecuted} from "../types/DataTypes.sol";
 
-/// @title UniswapV4FlashLoan
-/// @notice Uniswap V4 flash loan provider for liquidation execution
-/// @dev Implements IFlashLoan using Uniswap V4's unlock mechanism.
-///      Provides zero-fee flash loans by utilizing Uniswap's architecture.
+/**
+ * @title UniswapV4FlashLoan
+ * @author Liidia Team
+ * @notice Uniswap V4 flash loan provider for liquidation execution
+ * @dev Implements IFlashLoan using Uniswap V4's unlock mechanism.
+ *    Provides zero-fee flash loans by utilizing Uniswap's architecture.
+ */
 contract UniswapV4 is Ownable, IFlashLoan, IUnlockCallback {
     using SafeERC20 for IERC20;
 
@@ -43,6 +46,34 @@ contract UniswapV4 is Ownable, IFlashLoan, IUnlockCallback {
     /// @notice Counter for total flash loan calls
     uint256 public callCount;
 
+    /// @notice accumulates swap successes
+    uint256 public swapSuccessCount;
+
+    /// @notice accumulates swap fails
+    uint256 public swapFailCount;
+
+    /// @notice accumulates swap successes
+    uint256 public liqSuccessCount;
+
+    /// @notice accumulates swap fails
+    uint256 public liqFailCount;
+
+    //// EVENTS ////
+
+    /// @notice Emitted when swap succeeds
+    event LiqSuccessed(uint256 count);
+
+    /// @notice Emitted when a swap fails
+    event LiqFailed(uint256 count);
+
+    /// @notice Emitted when swap succeeds
+    event SwapSuccessed(uint256 count);
+
+    /// @notice Emiited when a swap fails
+    event SwapFailed(uint256 count);
+
+    //// ERRORS ////
+
     /// @notice Thrown when an address parameter is zero
     error InvalidAddress();
 
@@ -64,6 +95,7 @@ contract UniswapV4 is Ownable, IFlashLoan, IUnlockCallback {
     /// @notice Thrown when no profit is generated
     error NotProfitable();
 
+
     /// @notice Initializes the UniswapV4 flash loan provider
     /// @param _poolManager Address of Uniswap V4 PoolManager
     /// @param _swapRouter Address of UniversalSwapRouter
@@ -80,6 +112,10 @@ contract UniswapV4 is Ownable, IFlashLoan, IUnlockCallback {
         swapRouter = UniversalSwapRouter(_swapRouter);
 
         callCount = 0;
+        swapFailCount = 0;
+        swapSuccessCount = 0;
+        liqFailCount = 0;
+        liqSuccessCount = 0;
     }
 
     /// @notice Modifier to ensure only PoolManager can call certain functions
@@ -153,10 +189,15 @@ contract UniswapV4 is Ownable, IFlashLoan, IUnlockCallback {
         IERC20(liquidationParams.debtAsset).approve(targetContract, liquidationParams.debtToCover);
 
         // Execute liquidation via low-level call to support arbitrary protocols/adapters
-        (bool success, ) = targetContract.call(
-            liquidationParams.liquidationCalldata
-        );
-        if(!success) revert LiquidationFailed();
+        try this.executeLiquidation(targetContract, liquidationParams.liquidationCalldata) {
+            // success
+            liqSuccessCount++;
+            emit LiqSuccessed(liqSuccessCount);
+        } catch {
+            // fail
+            liqFailCount++;
+            emit LiqFailed(liqFailCount);
+        }
 
         // Get collateral received
         uint256 collateralReceived = IERC20(liquidationParams.collateralAsset)
@@ -169,16 +210,23 @@ contract UniswapV4 is Ownable, IFlashLoan, IUnlockCallback {
         _approveSwapAdapters(liquidationParams.collateralAsset);
 
         // Execute the swap
-        (, uint256 swappedOut, ) = swapRouter.swapMultiHop(
+        try this.executeSwap(
             liquidationParams.collateralAsset,
             liquidationParams.debtAsset,
             collateralReceived,
-            liquidationParams.debtToCover,
-            PROVIDER_ID
-        );
+            liquidationParams.debtToCover
+        ) returns (uint256 swappedOut) {
+            // Swap Success
+            swapSuccessCount++;
+            emit SwapSuccessed(swapSuccessCount);
 
-        // Verify the swap was successful
-        if(swappedOut <= liquidationParams.debtToCover) revert InsufficientSwapOutput();
+            // revert if swap amount is <= debt to cover
+            if(swappedOut <= liquidationParams.debtToCover) revert InsufficientSwapOutput();
+        } catch {
+            // Swap Fail
+            swapFailCount++;
+            emit SwapFailed(swapFailCount);
+        }
 
         //////////// REPAY //////////////
 
@@ -215,8 +263,6 @@ contract UniswapV4 is Ownable, IFlashLoan, IUnlockCallback {
             );
         }
 
-        /// EVENT ///
-
         emit LiquidationExecuted(
             "UNISWAP_V4",
             liquidationParams.liquidationTarget,
@@ -229,6 +275,37 @@ contract UniswapV4 is Ownable, IFlashLoan, IUnlockCallback {
         );
 
         return "";
+    }
+
+    /// @notice Executes liquidation calls
+    /// @param target Address of the protocol to liquidate
+    /// @param data Encoded LiquidationParams
+    function executeLiquidation(
+        address target, 
+        bytes calldata data
+    ) external {
+        (bool success, ) = target.call(data);
+        if (!success) revert LiquidationFailed();
+    }
+
+    /// @notice Executes asset swaps
+    /// @param collateralAsset Asset to swap from
+    /// @param debtAsset Asset to swap to
+    /// @param collateralReceived Amount of collateral to swap
+    /// @param minAmountOut Minimum amount of debtAsset to receive
+    function executeSwap(
+        address collateralAsset,
+        address debtAsset,
+        uint256 collateralReceived,
+        uint256 minAmountOut
+    ) external returns (uint256 swappedOut) {
+        (, swappedOut, ) = swapRouter.swapMultiHop(
+            collateralAsset,
+            debtAsset,
+            collateralReceived,
+            minAmountOut,
+            PROVIDER_ID
+        );
     }
 
     /// @notice Rescues stranded tokens from the contract
