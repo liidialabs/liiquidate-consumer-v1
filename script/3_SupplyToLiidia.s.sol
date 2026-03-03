@@ -63,6 +63,6 @@ contract SupplyToLiidia is Script {
         vm.stopBroadcast();
 
         uint256 balance = debtManager.getCollateralBalanceOfUser(userAddress, address(weth));
-        console2.log("User collateral balance from DebtManager: %s WETH", balance / 1e18);
+        console2.log("User collateral balance from DebtManager: %s WETH", balance );
     }
 }
