@@ -33,17 +33,49 @@ coverage-report :; forge coverage --report lcov && genhtml lcov.info -o coverage
 
 anvil :; anvil -m 'test test test test test test test test test test test junk' --steps-tracing --block-time 1
 
+# Anvil
 # NETWORK_ARGS := --rpc-url http://localhost:8545 --private-key $(DEFAULT_ANVIL_KEY) --broadcast -vvvv
-NETWORK_ARGS := --rpc-url $(SEPOLIA_RPC_URL) --private-key $(PRIVATE_KEY_USER) --broadcast -vvvv
+# RPC_URL := --rpc-url http://localhost:8545 
+
+# Sepolia
+# NETWORK_ARGS := --rpc-url $(SEPOLIA_RPC_URL) --private-key $(PRIVATE_KEY_USER) --broadcast -vvvv
+# RPC_URL := --rpc-url $(SEPOLIA_RPC_URL)
+
+# Tenderly
+NETWORK_ARGS := --rpc-url $(TENDERLY_VIRTUAL_TESTNET_RPC_URL)	\
+				--private-key $(PRIVATE_KEY_USER)	\
+				--broadcast -vvvv
+RPC_URL := --rpc-url $(TENDERLY_VIRTUAL_TESTNET_RPC_URL)
 
 # Set NETWORK_ARGS based on the network specified in ARGS for deployment
 # make deploy ARGS="--network sepolia"
 ifeq ($(findstring --network sepolia,$(ARGS)),--network sepolia)
-	NETWORK_ARGS := --rpc-url $(SEPOLIA_RPC_URL) --private-key $(PRIVATE_KEY_DEPLOYER) --broadcast --gas-price 50000000000 --slow --verify --etherscan-api-key $(ETHERSCAN_API_KEY) -vvvv
+	NETWORK_ARGS := --rpc-url $(SEPOLIA_RPC_URL)	\ 
+					--private-key $(PRIVATE_KEY_DEPLOYER)	\
+					--broadcast	\ 
+					--gas-price 50000000000	\ 
+					--slow	\ 
+					--verify	\ 
+					--etherscan-api-key $(ETHERSCAN_API_KEY) -vvvv
+endif
+
+ifeq ($(findstring --network tenderly,$(ARGS)),--network tenderly)
+	NETWORK_ARGS := --slow \
+					--broadcast \
+					--verify \
+					--verifier custom \
+					--verifier-url $(TENDERLY_VERIFIER_URL) \
+					--rpc-url $(TENDERLY_VIRTUAL_TESTNET_RPC_URL) \
+					--private-key $(PRIVATE_KEY_DEPLOYER) \
+					--chain-id 11155111
 endif
 
 ifeq ($(findstring --network mainnet,$(ARGS)),--network mainnet)
-	NETWORK_ARGS := --rpc-url $(MAINNET_RPC_URL) --private-key $(PRIVATE_KEY_DEPLOYER) --broadcast --verify --etherscan-api-key $(ETHERSCAN_API_KEY) -vvvv
+	NETWORK_ARGS := --rpc-url $(MAINNET_RPC_URL)	\
+	 				--private-key $(PRIVATE_KEY_DEPLOYER)	\ 
+					--broadcast	\ 
+					--verify	\ 
+					--etherscan-api-key $(ETHERSCAN_API_KEY) -vvvv
 endif
 
 # quick deploy and interaction scripts for testnet testing
@@ -72,28 +104,32 @@ deploy-liiquidate:
 man-liiquidate:
 	@forge script script/ManualLiiquidate.s.sol:ManualLiiquidate $(NETWORK_ARGS)
 
-# quick deploy and interaction scripts for gas estimation on Sepolia
+# Simulate deployments and contract interactions to estimate gas and fix bugs
 
 sim-deploy-script:
-	@forge script script/1a_DeployScript.s.sol:DeployScript --rpc-url $(SEPOLIA_RPC_URL)
+	@forge script script/1a_DeployScript.s.sol:DeployScript $(RPC_URL)
 
 sim-deploy-configs:
-	@forge script script/1b_ConfigureMocks.s.sol:ConfigureMocks --rpc-url $(SEPOLIA_RPC_URL)
+	@forge script script/1b_ConfigureMocks.s.sol:ConfigureMocks $(RPC_URL)
 
 sim-deploy-adapters:
-	@forge script script/2_DeployAndRegisterAdapter.s.sol:DeployAndRegisterAdapter --rpc-url $(SEPOLIA_RPC_URL)
+	@forge script script/2_DeployAndRegisterAdapter.s.sol:DeployAndRegisterAdapter $(RPC_URL)
 
 sim-supply:
-	@forge script script/3_SupplyToLiidia.s.sol:SupplyToLiidia --rpc-url $(SEPOLIA_RPC_URL)
+	@forge script script/3_SupplyToLiidia.s.sol:SupplyToLiidia $(RPC_URL)
 
 sim-borrow:
-	@forge script script/4_BorrowFromLiidia.s.sol:BorrowFromLiidia --rpc-url $(SEPOLIA_RPC_URL)
+	@forge script script/4_BorrowFromLiidia.s.sol:BorrowFromLiidia $(RPC_URL)
 
 sim-drop-price:
-	@forge script script/5_DropAssetPrices.s.sol:DropAssetPrices --rpc-url $(SEPOLIA_RPC_URL)
+	@forge script script/5_DropAssetPrices.s.sol:DropAssetPrices $(RPC_URL)
 
 sim-deploy-liiquidate:
-	@forge script script/DeployLiiquidate.s.sol:DeployLiiquidate --rpc-url $(SEPOLIA_RPC_URL)
+	@forge script script/DeployLiiquidate.s.sol:DeployLiiquidate $(RPC_URL)
 
 sim-man-liiquidate:
-	@forge script script/ManualLiiquidate.s.sol:ManualLiiquidate --rpc-url $(SEPOLIA_RPC_URL)
+	@forge script script/ManualLiiquidate.s.sol:ManualLiiquidate $(RPC_URL)
+
+# Tenderly - to deal with cooldown periods
+forward-time:
+	@cast rpc evm_increaseTime 3600 --rpc-url $(TENDERLY_VIRTUAL_TESTNET_ADMIN)
