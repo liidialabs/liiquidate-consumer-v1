@@ -20,41 +20,41 @@ contract HelperConfig is Script {
 
     // Constants for known addresses on Sepolia
     /// @notice LiiBorrow DebtManager address on Sepolia
-    address public constant debtManagerAddress = 0x3f26685991D09eCd40227Efb7649Ca2A371708CC;
+    address public constant debtManagerAddress = 0xFB56BcBB16eF411Ad25EE507d7c2430e561ae3E0;
     /// @notice Aave V3 Pool address on Sepolia
-    address public constant aaveAddress = 0x2853eA59358977011a8Bf653ab00d975871e3D6e;
+    address public constant aaveAddress = 0x4051A4D767C41074bA8d714083DB2308EA55B7c4;
     /// @notice WETH token address on Sepolia
-    address public constant WETH = 0x394A1145Cc4480cD047ad065a5Ece23D4fcC2E1d;
+    address public constant WETH = 0x6de4964bfEbCa1848c74FeaA6736b14898DfDB0c;
     /// @notice USDC token address on Sepolia
-    address public constant USDC = 0xf8340a3BB21282Af32B567e0ACE1Cc5c4eF63a73;
+    address public constant USDC = 0x23256311E41354c00E880D5b923A64552f077FD3;
     /// @notice Mock Pool address for testing
-    address public constant mockPool = 0xDB79AF69617bFcB71D55E7575bFbb1De86151eF9;
+    address public constant mockPool = 0xe1B210f9064001a2db724e8DA6166CD76737DD40;
     /// @notice Mock Aave Oracle address
-    address public constant mockAaveV3Oracle = 0x10C979d0f556799262CF3934e211BDA4e4E9074A;
+    address public constant mockAaveV3Oracle = 0xe6dC6561a06cFD9969761913D38EcC58cE7227B9;
     /// @notice Chainlink Automation Forwarder address
     address public constant forwarderAddress = 0x15fC6ae953E024d975e77382eEeC56A9101f9F88; 
     /// @notice Uniswap V4 Pool Manager address
-    address public constant uniswapV4PoolAddress = 0xdB3Be29F46988C7cb8517aB4152982e5ac318222;
+    address public constant uniswapV4PoolAddress = 0x28bce4c43AE57CA894be69C73aD7366608098853;
     /// @notice Aave V3 Pool address
-    address public constant aaveV3PoolAddress = 0xf546bCddbBAE1446EB9B5BE9a411BE8B81e8475A;
+    address public constant aaveV3PoolAddress = 0xA4C3D01916A0a27f6F182B4b569C9936d5eB3BB6;
     /// @notice Adapter Registry address
-    address public constant adapterRegistryAddress = 0x4CB625A5249397f19B4CC536A6E9188326f6c407;
+    address public constant adapterRegistryAddress = 0xd74963e909FF1e68A16883addA3e17b892f78d35;
     /// @notice Flash Loan Router address
-    address public constant flashLoanRouterAddress = 0x9C94Fa6637B37B5e7507937a83955B2c616Eeac4;
+    address public constant flashLoanRouterAddress = 0xB55dB475d4791e4434308B9E1ba37916115F08b7;
     /// @notice Universal Swap Router address
-    address public constant universalSwapRouterAddress = 0xe727F23641399B9869c4e96ae605b09a6459B4a1;
+    address public constant universalSwapRouterAddress = 0xa007e01273081543d476A9deFC3Bd985EcF5b34c;
     /// @notice Liiquidate contract address
-    address public constant liiquidateAddress = 0x87888dAEE178A598ff62E3E0c26Cb202e6E7fAC6;
+    address public constant liiquidateAddress = 0xEaD1FCB130c0539b883b87513a900c9198c6d2d5;
     /// @notice Uniswap V4 Adapter address
-    address public constant uniswapV4AdapterAddress = 0x04bEC3Af60eC545BbEfC1B14411D72dcDC654684;
+    address public constant uniswapV4AdapterAddress = 0xff29F2B180C1616Afec88B910BC35E7e99eC8388;
     /// @notice Uniswap V4 Flashloan address
-    address public constant uniswapV4FlashloanAddress = 0xec5f7FBC9C6751f24E7a91A0f84780ab1044BD5B;
+    address public constant uniswapV4FlashloanAddress = 0x04b9215dc984b771641D5d7bAcb54e1D2dD99b0e;
     /// @notice Aave V3 Flashloan address
-    address public constant aaveV3FlashloanAddress = 0xd34aa92863367e71CB3f007e08f0ddCb1a9E1cC4;
+    address public constant aaveV3FlashloanAddress = 0x6B02ceff69997592C5D3f8199C60A226ECE85eB8;
     /// @notice Mock Chainlink Oracle address
-    address public constant mockChainlinkOracle = 0xaeEffddcC3095DC4037D58B654a371b7Ff679F30;
+    address public constant mockChainlinkOracle = 0x82a9d607cC8df65AF2910E04211Ebd7e989f5379;
     /// @notice LiiBorrow V1 Adapter address
-    address public constant liiBorrowV1AdapterAddress = 0xb4Bae94D879888EbB1e3f8e4D73ddD9a49dACFC9;
+    address public constant liiBorrowV1AdapterAddress = 0x38e933A0d6582453E831c47e7D1863B634dB17f1;
 
     /// @notice Deployer private key from environment
     uint256 public deployerKey = vm.envUint("PRIVATE_KEY_DEPLOYER");
@@ -70,16 +70,13 @@ contract HelperConfig is Script {
     /// @notice Default Anvil private key for local testing
     uint256 public constant DEFAULT_ANVIL_PRIVATE_KEY = 0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80;
 
-    constructor() {}
-
-    /// @notice Returns Base Sepolia network configuration
-    /// @return mainnetNetworkConfig NetworkConfig with zero addresses
-    function getBaseSepoliaConfig() public pure returns (NetworkConfig memory mainnetNetworkConfig) {
-        mainnetNetworkConfig = NetworkConfig({
-            forwarderAddress: address(0),
-            aaveV3PoolAddress: address(0),
-            uniswapV4PoolAddress: address(0)
-        });
+    constructor() {
+        // if (block.chainid == 111_55_111) {
+        //     activeNetworkConfig = getSepoliaConfig();
+        //     if(activeNetworkConfig.aaveV3PoolAddress == address(0)) {
+        //         activeNetworkConfig = getMockConfigs();
+        //     }
+        // }
     }
 
     /// @notice Returns Sepolia network configuration
@@ -95,7 +92,7 @@ contract HelperConfig is Script {
     /// @notice Creates or retrieves local anvil configuration with deployed mocks
     /// @dev Deploys MockUniswapV4PoolManager and MockAaveV3Pool for local testing
     /// @return createdNetworkConfig NetworkConfig with mock addresses
-    function getOrCreateConfig() public returns (NetworkConfig memory createdNetworkConfig) {
+    function getMockConfigs() public returns (NetworkConfig memory createdNetworkConfig) {
         vm.startBroadcast();
 
         uniswapV4Pool = new MockUniswapV4PoolManager();
