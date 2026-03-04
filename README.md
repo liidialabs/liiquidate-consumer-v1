@@ -1,4 +1,4 @@
-# Liiquidate
+# Liiquidate Consumer Contract
 
 A proxy consumer smart contract built for the Chainlink CRE Automation Workflow to execute liquidation of undercollateralized positions for the LiiBorrow, a lending protocol built on top of Aave V3.
 
