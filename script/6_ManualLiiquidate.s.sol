@@ -16,24 +16,36 @@ contract ManualLiiquidate is Script {
     HelperConfig helperConfig;
     FlashLoanRouter flashRouter;
     AdapterRegistry registry;
-    MockERC20 usdc;
+    MockERC20 USDC;
 
     /// @notice Main liquidation function
     /// @dev Executes a manual liquidation of a specific user position
     function run() public {
+        // deploy helperConfig
         helperConfig = new HelperConfig();
+        // fetch addresses
+        (
+            address adapterRegistryAddress,
+            address flashLoanRouterAddress,
+            ,,,,,
+        ) = helperConfig.activeLiiquidateConfig();
+        (
+            ,,,
+            address usdc
+        ) = helperConfig.activeLiiBorrowConfig();
 
-        registry = AdapterRegistry(helperConfig.adapterRegistryAddress());
-        flashRouter = FlashLoanRouter(helperConfig.flashLoanRouterAddress());
-        usdc = MockERC20(helperConfig.USDC());
+        registry = AdapterRegistry(adapterRegistryAddress);
+        flashRouter = FlashLoanRouter(flashLoanRouterAddress);
+        USDC = MockERC20(usdc);
 
         vm.startBroadcast(helperConfig.deployerKey());
         
-        string memory protocolName = 'LIIBORROW_v1';
-        address user = 0xC099f8A2C5117C81652A506aFfE10a6E77e79808;
-        uint256 debtToCover = 600e6;
-        address debtAsset = 0xf8340a3BB21282Af32B567e0ACE1Cc5c4eF63a73;
-        address collateralAsset = 0x394A1145Cc4480cD047ad065a5Ece23D4fcC2E1d;
+        // liquidatable position data
+        string memory protocolName = '';
+        address user = address(0);
+        uint256 debtToCover = 0;
+        address debtAsset = address(0);
+        address collateralAsset = address(0);
 
         address adapterAddr = registry.getAdapter(protocolName);
 
@@ -46,7 +58,7 @@ contract ManualLiiquidate is Script {
                 collateralAsset
             );
         
-        uint256 balance = usdc.balanceOf(helperConfig.flashLoanRouterAddress());
+        uint256 balance = USDC.balanceOf(flashLoanRouterAddress);
         ILiquidationAdapter.RiskState memory riskState = adapter.getRiskState(user);
         console2.log("isLiquidatable: %s", riskState.liquidatable);
         console2.log("HF: %s", riskState.riskMetric);
@@ -69,7 +81,7 @@ contract ManualLiiquidate is Script {
         console2.log("Debt: %s", riskState.debtUSD);
         console2.log("Collateral: %s", riskState.collateralUSD);
         console2.log(">-------------------------<");
-        balance = usdc.balanceOf(helperConfig.flashLoanRouterAddress());
+        balance = USDC.balanceOf(flashLoanRouterAddress);
         console2.log("FlashRouter Balance: %s", balance / 1e6);
 
         vm.stopBroadcast();
