@@ -42,18 +42,34 @@ contract ConfigureMocks is Script {
     /// @notice Main configuration function
     /// @dev Deploys mock price feed, configures Aave V3 and Uniswap V4 pools
     function run() public {
+        // deploy helperConfig
         helperConfig = new HelperConfig();
+        // fetch addresses
+        (
+            ,
+            address aaveV3PoolAddress,
+            address uniswapV4PoolAddress
+        ) = helperConfig.activeNetworkConfig();
+        (
+            ,,
+            address weth,
+            address usdc
+        ) = helperConfig.activeLiiBorrowConfig();
+        (
+            ,,,,,,
+            address uniswapV4AdapterAddress,
+        ) = helperConfig.activeLiiquidateConfig();
 
         vm.startBroadcast(helperConfig.deployerKey());
 
         priceFeed = new MockV3Aggregator(8, 2000e8, "WETH/USD");
 
-        USDC = MockERC20(helperConfig.USDC());
-        WETH = MockERC20(helperConfig.WETH());
+        USDC = MockERC20(usdc);
+        WETH = MockERC20(weth);
 
-        aaveV3Pool = MockAaveV3Pool(payable(helperConfig.aaveV3PoolAddress()));
-        uniswapV4Pool = MockUniswapV4PoolManager(payable(helperConfig.uniswapV4PoolAddress()));
-        uniswapAdapter = UniswapV4Adapter(payable(helperConfig.uniswapV4AdapterAddress()));
+        aaveV3Pool = MockAaveV3Pool(payable(aaveV3PoolAddress));
+        uniswapV4Pool = MockUniswapV4PoolManager(payable(uniswapV4PoolAddress));
+        uniswapAdapter = UniswapV4Adapter(payable(uniswapV4AdapterAddress));
 
         _configureAaveV3Pool(aaveV3Pool);
         _configureUniswapV4Pool(uniswapV4Pool);
@@ -107,7 +123,7 @@ contract ConfigureMocks is Script {
         uint24[] memory fees = new uint24[](1);
         fees[0] = uint24(POOL_FEE);
 
-        uint160 sqrtPriceX96 = 3543191142285914205922034323214;
+        uint160 sqrtPriceX96 = 3543191142285914205922034323214; // for 2000USDC/1WETH
         _uniswapV4Pool.initialize(
             poolKey,
             sqrtPriceX96,

@@ -1,6 +1,6 @@
 # Liiquidate Consumer Contract
 
-A proxy consumer smart contract built for the Chainlink CRE Automation Workflow to execute liquidation of undercollateralized positions for the LiiBorrow, a lending protocol built on top of Aave V3.
+A proxy consumer smart contract built for the Chainlink CRE Automation Workflow to execute liquidation of undercollateralized positions for LiiBorrow, a lending protocol built on top of Aave V3.
 
 ## Overview
 
@@ -191,7 +191,6 @@ The following environment variables are required for Tenderly Virtual TestNet:
 ### Limitations
 
 - Simulated environment may behave differently than mainnet
-- No real economic incentives
 - Limited to Tenderly's virtual network
 
 ## Mainnet And Sepolia (... and other EVMS)

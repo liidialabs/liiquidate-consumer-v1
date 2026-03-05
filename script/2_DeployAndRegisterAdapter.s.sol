@@ -21,13 +21,23 @@ contract DeployAndRegisterAdapter is Script {
     /// @notice Main deployment function
     /// @dev Deploys the LiiBorrowV1Adapter and registers it with the protocol registry
     function run() public {
+        // deploy helperConfig
         helperConfig = new HelperConfig();
+        // fetch addresses
+        (
+            address adapterRegistryAddress,
+            ,,,,,,
+        ) = helperConfig.activeLiiquidateConfig();
+        (
+            address debtManagerAddress,
+            ,,
+        ) = helperConfig.activeLiiBorrowConfig();
 
         vm.startBroadcast(helperConfig.deployerKey());
 
-        adapterRegistry = AdapterRegistry(helperConfig.adapterRegistryAddress());
+        adapterRegistry = AdapterRegistry(adapterRegistryAddress);
 
-        liiBorrowV1Adapter = new LiiBorrowV1Adapter(helperConfig.debtManagerAddress());
+        liiBorrowV1Adapter = new LiiBorrowV1Adapter(debtManagerAddress);
         adapterRegistry.registerAdapter(
             address(liiBorrowV1Adapter)
         );

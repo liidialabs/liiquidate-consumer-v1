@@ -21,13 +21,19 @@ contract BorrowFromLiidia is Script {
     /// @notice Main borrow function
     /// @dev Borrows USDC from the protocol against supplied collateral
     function run() public {
+        // deploy helperConfig
         helperConfig = new HelperConfig();
+        // fetch addresses
+        (
+            address debtManagerAddress,,
+            address weth,
+        ) = helperConfig.activeLiiBorrowConfig();
 
-        debtManager = IDebtManager(helperConfig.debtManagerAddress());
+        debtManager = IDebtManager(debtManagerAddress);
 
         uint256 hfBefore = debtManager.getHealthFactor(vm.addr(USER));
         (uint256 aaveDebtBefore, ) = debtManager.getUserDebt(vm.addr(USER));
-        uint256 balance = debtManager.getCollateralBalanceOfUser(vm.addr(USER), address(helperConfig.WETH()));
+        uint256 balance = debtManager.getCollateralBalanceOfUser(vm.addr(USER), weth);
         console2.log("User collateral balance from DebtManager: %s WETH", balance / 1e18);
         console2.log("User Health Factor before borrow: %s", hfBefore);
         console2.log("User Debt before borrow: %s USDC", aaveDebtBefore / 1e6);

@@ -39,14 +39,36 @@ contract DropAssetPrices is Script {
     /// @notice Main function to drop asset prices
     /// @dev Updates oracles and pool price to trigger liquidation eligibility
     function run() public {
+        // deploy helperConfig
         helperConfig = new HelperConfig();
+        // fetch addresses
+        (
+            address mockChainlinkOracle,
+            address mockAaveV3Oracle,
+            address mockAaveV3Pool
+        ) = helperConfig.activeMockConfig();
+        (
+            ,,
+            address uniswapV4PoolAddress
+        ) = helperConfig.activeNetworkConfig();
+        (
+            address debtManagerAddress,,
+            address weth,
+            address usdc
+        ) = helperConfig.activeLiiBorrowConfig();
+        (
+            ,
+            address flashLoanRouterAddress,
+            ,,,,,
+            address liiBorrowV1AdapterAddress
+        ) = helperConfig.activeLiiquidateConfig();
 
-        priceFeed = MockV3Aggregator(helperConfig.mockChainlinkOracle());
-        aaveOracle = IMockAaveOracle(helperConfig.mockAaveV3Oracle());
-        debtManager = IDebtManager(helperConfig.debtManagerAddress());
-        uniswapV4Pool = MockUniswapV4PoolManager(payable(helperConfig.uniswapV4PoolAddress()));
-        liiAdapter = LiiBorrowV1Adapter(helperConfig.liiBorrowV1AdapterAddress());
-        flashRouter = FlashLoanRouter(helperConfig.flashLoanRouterAddress());
+        priceFeed = MockV3Aggregator(mockChainlinkOracle);
+        aaveOracle = IMockAaveOracle(mockAaveV3Oracle);
+        debtManager = IDebtManager(debtManagerAddress);
+        uniswapV4Pool = MockUniswapV4PoolManager(payable(uniswapV4PoolAddress));
+        liiAdapter = LiiBorrowV1Adapter(liiBorrowV1AdapterAddress);
+        flashRouter = FlashLoanRouter(flashLoanRouterAddress);
 
         uint256 hfBefore = debtManager.getHealthFactor(vm.addr(userKey));
         bool isLiquidatableBefore = debtManager.isLiquidatable(vm.addr(userKey));
@@ -59,17 +81,17 @@ contract DropAssetPrices is Script {
         vm.startBroadcast(helperConfig.deployerKey());
         
         PoolKey memory poolKey = PoolKey({
-            currency0: Currency.wrap(helperConfig.WETH()),
-            currency1: Currency.wrap(helperConfig.USDC()),
+            currency0: Currency.wrap(weth),
+            currency1: Currency.wrap(usdc),
             fee: 3000,
             tickSpacing: 60, 
             hooks: IHooks(address(0)) 
         });
-        uint160 newSqrtPriceX96 = 3162277660168379331998893544432;
+        uint160 newSqrtPriceX96 = 3162277660168379331998893544432; // for 1600USDC/1WETH
 
         uniswapV4Pool.setSqrtPrice(poolKey, newSqrtPriceX96);
 
-        aaveOracle.setAssetPrice(helperConfig.WETH(), uint256(NEW_PRICE));
+        aaveOracle.setAssetPrice(weth, uint256(NEW_PRICE));
         priceFeed.updateAnswer(NEW_PRICE);
         console2.log("Successfully dropped asset price to $%d!", NEW_PRICE / 1e8);
 

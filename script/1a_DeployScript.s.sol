@@ -37,13 +37,18 @@ contract DeployScript is Script {
     /// @notice Main deployment function
     /// @dev Deploys all contracts and configures them with proper addresses and priorities
     function run() public {
+        // deploy helperConfig
         helperConfig = new HelperConfig();
-
+        // fetch addresses
         (
             address forwarderAddress,
             address aaveV3PoolAddress,
             address uniswapV4PoolAddress
         ) = helperConfig.activeNetworkConfig();
+        (
+            ,,,
+            address usdc
+        ) = helperConfig.activeLiiBorrowConfig();
 
         vm.startBroadcast(helperConfig.deployerKey());
 
@@ -81,7 +86,7 @@ contract DeployScript is Script {
         ///// DEPLOY LIIQUIDATE AND SET AS PROXY /////
 
         liiquidate = new Liiquidate(
-            helperConfig.USDC(),
+            usdc,
             address(adapterRegistry), 
             address(flashRouter), 
             forwarderAddress

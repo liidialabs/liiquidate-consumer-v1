@@ -15,9 +15,9 @@ import {IMockAaveOracle} from "../test/mocks/interfaces/IMockAaveOracle.sol";
 /// @dev Mints WETH to user and deposits it as collateral in the DebtManager
 contract SupplyToLiidia is Script {
     IDebtManager debtManager;
-    MockERC20 weth;
+    MockERC20 WETH;
     HelperConfig helperConfig;
-    IMockAaveV3Pool mockAaveV3Pool;
+    IMockAaveV3Pool _mockAaveV3Pool;
     IMockAaveOracle aaveOracle;
     MockV3Aggregator priceFeed;
 
@@ -29,24 +29,36 @@ contract SupplyToLiidia is Script {
     /// @notice Main supply function
     /// @dev Mints WETH to user, approves DebtManager, deposits collateral
     function run() public {
+        // deploy helperConfig
         helperConfig = new HelperConfig();
+        // fetch addresses
+        (
+            address mockChainlinkOracle,
+            address mockAaveV3Oracle,
+            address mockAaveV3Pool
+        ) = helperConfig.activeMockConfig();
+        (
+            address debtManagerAddress,,
+            address weth,
+            address usdc
+        ) = helperConfig.activeLiiBorrowConfig();
 
-        weth = MockERC20(helperConfig.WETH());
-        mockAaveV3Pool = IMockAaveV3Pool(helperConfig.mockPool());
-        priceFeed = MockV3Aggregator(helperConfig.mockChainlinkOracle());
-        aaveOracle = IMockAaveOracle(helperConfig.mockAaveV3Oracle());
+        WETH = MockERC20(weth);
+        _mockAaveV3Pool = IMockAaveV3Pool(mockAaveV3Pool);
+        priceFeed = MockV3Aggregator(mockChainlinkOracle);
+        aaveOracle = IMockAaveOracle(mockAaveV3Oracle);
 
         vm.startBroadcast(USER);
 
         address userAddress = vm.addr(USER);
 
-        weth.mint(userAddress, SUPPLY_AMOUNT);
+        WETH.mint(userAddress, SUPPLY_AMOUNT);
 
-        debtManager = IDebtManager(helperConfig.debtManagerAddress());
-        weth.approve(helperConfig.debtManagerAddress(), SUPPLY_AMOUNT);
-        debtManager.depositCollateralERC20(helperConfig.WETH(), SUPPLY_AMOUNT);
+        debtManager = IDebtManager(debtManagerAddress);
+        WETH.approve(debtManagerAddress, SUPPLY_AMOUNT);
+        debtManager.depositCollateralERC20(weth, SUPPLY_AMOUNT);
 
-        mockAaveV3Pool.setUserAccountData(
+        _mockAaveV3Pool.setUserAccountData(
             address(debtManager),
             200000e8,
             0,
@@ -62,7 +74,7 @@ contract SupplyToLiidia is Script {
 
         vm.stopBroadcast();
 
-        uint256 balance = debtManager.getCollateralBalanceOfUser(userAddress, address(weth));
+        uint256 balance = debtManager.getCollateralBalanceOfUser(userAddress, weth);
         console2.log("User collateral balance from DebtManager: %s WETH", balance );
     }
 }
