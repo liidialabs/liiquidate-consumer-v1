@@ -85,7 +85,7 @@ contract HelperConfig is Script {
                 activeLiiBorrowConfig,
                 activeLiiquidateConfig,
                 activeMockConfig
-            ) = getMainnetConfig();
+            ) = getSepoliaConfig(); // change to getMainnetConfig when not deploying, currently using sepolia as we using Tenderly Virtual TestNet
         }
     }
 
@@ -136,8 +136,8 @@ contract HelperConfig is Script {
     ) {
 
         // update address(0) values after deploying
-        address aaveV3PoolAddress = address(0);
-        address uniswapV4PoolAddress = address(0);
+        address aaveV3PoolAddress = 0xa543f90B8F35EaA0b6c16E774828ebaAd42a0155;
+        address uniswapV4PoolAddress = 0x60E2c27bF334ebF7013f973f59f006076dc61e80;
 
         vm.startBroadcast();
 
@@ -150,39 +150,39 @@ contract HelperConfig is Script {
             aaveV3PoolAddress = address(aaveV3pool);
             uniswapV4PoolAddress = address(uniswapV4Pool);
             // Log addresses
-            console2.log("Deployed MockUniswapV4PoolManager on %s", aaveV3PoolAddress);
-            console2.log("Deployed MockAaveV3Pool on %s", uniswapV4PoolAddress);
+            console2.log("Deployed MockAaveV3Pool on %s", aaveV3PoolAddress);
+            console2.log("Deployed MockUniswapV4PoolManager on %s", uniswapV4PoolAddress);
             console2.log("------------------------------------------------------");
         }
         
         vm.stopBroadcast();
 
         sepoliaNetworkConfig = NetworkConfig({
-            forwarderAddress: 0x15fC6ae953E024d975e77382eEeC56A9101f9F88, // chainlink Sepolia forwarder address
+            forwarderAddress: 0xA3D1AD4Ac559a6575a114998AffB2fB2Ec97a7D9, // chainlink Sepolia forwarder address
             aaveV3PoolAddress: aaveV3PoolAddress,
             uniswapV4PoolAddress: uniswapV4PoolAddress
         });
 
         sepoliaLiiBorrowConfig = LiiBorrowConfig({
-            debtManagerAddress: address(0),
-            aaveAddress: address(0),
-            weth: address(0),
-            usdc: address(0)
+            debtManagerAddress: 0x4E0Af3287669D331BB5B858B738B0be069b7C750,
+            aaveAddress: 0x4fc08467e75db0123480d869239Afd9CCBeE0951,
+            weth: 0x49C954F846e870FE5402C7F65cD035592c81aadB,
+            usdc: 0x8ca959E4c4745df0E2fE5CE5fAcFD3F35ae509e9
         });
         sepoliaLiiquidateConfig = LiiquidateConfig({
-            adapterRegistryAddress: address(0),
-            flashLoanRouterAddress: address(0),
-            universalSwapRouterAddress: address(0),
-            liiquidateAddress: address(0),
-            uniswapV4FlashloanAddress: address(0),
-            aaveV3FlashloanAddress: address(0),
-            uniswapV4AdapterAddress: address(0),
-            liiBorrowV1AdapterAddress: address(0)
+            adapterRegistryAddress: 0x8d1D8766396C828ADa63B508186A83B8289d4bA1,
+            flashLoanRouterAddress: 0xbAAc86Db65BBd8A92741780FF4157eB5f490c51f,
+            universalSwapRouterAddress: 0xFB43092C66D31942440AFb113cA6F26e061C85D9,
+            liiquidateAddress: 0xa9D309dFe0924Ba65A5EFa9D9Ea9528E43562934,
+            uniswapV4FlashloanAddress: 0x435b2c4135517700ba80EaD194930f49239Fdb8e,
+            aaveV3FlashloanAddress: 0x555d05ccf5590068679c07519445705f9f8CB62f,
+            uniswapV4AdapterAddress: 0xb2Bf9de9308747e5f0dafCb48c45928442261700,
+            liiBorrowV1AdapterAddress: 0xBC3192c86c99c1dCE635Fe2C9cCA375e2Ab1556D
         });
         sepoliaMockConfig = MockConfig({
-            mockChainlinkOracle: address(0),
-            mockAaveV3Oracle: address(0),
-            mockAaveV3Pool: address(0)
+            mockChainlinkOracle: 0x1E1e2a398EBA72C5D4bdEA909F3bC928eFfF4505,
+            mockAaveV3Oracle: 0xDFe8c6121b43e3B5bd0731F724007D0119B838bc,
+            mockAaveV3Pool: 0xd64033432e085905487A490441C0cF8D47E1c40f
         });
     }
 }
