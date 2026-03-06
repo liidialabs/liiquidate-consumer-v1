@@ -5,7 +5,6 @@ import "forge-std/Script.sol";
 import "forge-std/console2.sol";
 import {IDebtManager} from "../src/liidiaProtocol/IDebtManager.sol";
 import {MockERC20} from "../test/mocks/MockERC20.sol";
-import {IMockAaveV3Pool} from "../test/mocks/interfaces/IMockAaveV3Pool.sol";
 import {HelperConfig} from "./HelperConfig.s.sol";
 import {MockV3Aggregator} from "../test/mocks/MockChainlinkOracle.sol";
 import {IMockAaveOracle} from "../test/mocks/interfaces/IMockAaveOracle.sol";
@@ -17,7 +16,6 @@ contract SupplyToLiidia is Script {
     IDebtManager debtManager;
     MockERC20 WETH;
     HelperConfig helperConfig;
-    IMockAaveV3Pool _mockAaveV3Pool;
     IMockAaveOracle aaveOracle;
     MockV3Aggregator priceFeed;
 
@@ -35,38 +33,25 @@ contract SupplyToLiidia is Script {
         (
             address mockChainlinkOracle,
             address mockAaveV3Oracle,
-            address mockAaveV3Pool
         ) = helperConfig.activeMockConfig();
         (
             address debtManagerAddress,,
             address weth,
-            address usdc
         ) = helperConfig.activeLiiBorrowConfig();
 
+        // contract instances
         WETH = MockERC20(weth);
-        _mockAaveV3Pool = IMockAaveV3Pool(mockAaveV3Pool);
         priceFeed = MockV3Aggregator(mockChainlinkOracle);
         aaveOracle = IMockAaveOracle(mockAaveV3Oracle);
+        debtManager = IDebtManager(debtManagerAddress);
+        
+        address userAddress = vm.addr(USER);
 
         vm.startBroadcast(USER);
 
-        address userAddress = vm.addr(USER);
-
         WETH.mint(userAddress, SUPPLY_AMOUNT);
-
-        debtManager = IDebtManager(debtManagerAddress);
         WETH.approve(debtManagerAddress, SUPPLY_AMOUNT);
         debtManager.depositCollateralERC20(weth, SUPPLY_AMOUNT);
-
-        _mockAaveV3Pool.setUserAccountData(
-            address(debtManager),
-            200000e8,
-            0,
-            160000e8,
-            8250,
-            8000,
-            type(uint256).max
-        );
 
         console2.log("Successfully supplied 1 WETH to the protocol!");
         console2.log("Price at $2000 USD");
