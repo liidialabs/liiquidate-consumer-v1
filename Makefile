@@ -44,6 +44,7 @@ anvil :; anvil -m 'test test test test test test test test test test test junk' 
 # Tenderly
 NETWORK_ARGS := --rpc-url $(TENDERLY_VIRTUAL_TESTNET_RPC_URL)	\
 				--private-key $(PRIVATE_KEY_USER)	\
+				--slow	\
 				--broadcast -vvvv
 RPC_URL := --rpc-url $(TENDERLY_VIRTUAL_TESTNET_RPC_URL)
 
@@ -67,7 +68,7 @@ ifeq ($(findstring --network tenderly,$(ARGS)),--network tenderly)
 					--verifier-url $(TENDERLY_VERIFIER_URL) \
 					--rpc-url $(TENDERLY_VIRTUAL_TESTNET_RPC_URL) \
 					--private-key $(PRIVATE_KEY_DEPLOYER) \
-					--chain-id 11155111
+					--chain-id 1
 endif
 
 ifeq ($(findstring --network mainnet,$(ARGS)),--network mainnet)
