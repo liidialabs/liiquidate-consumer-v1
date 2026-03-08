@@ -4,13 +4,13 @@ A proxy consumer smart contract built for the Chainlink CRE Automation Workflow 
 
 ## Overview
 
-When a users positions drops below the liquidation threshold, the CRE automated workflow picks them up and forwards them to Liiquidate that executes the liquidation using flash loans to cover the debt without requiring upfront capital.
+When a users positions drops below the liquidation threshold, the CRE automated workflow picks them up and forwards them to this consumer contract that executes the liquidation using flash loans to cover the debt without requiring upfront capital.
 
 ## How It Works
 
 The liquidation flow operates as follows:
 
-1. **Trigger**: Chainlink Automation detects undercollateralized positions and sends a liquidation report to the Liiquidate contract
+1. **Trigger**: Chainlink Automation detects undercollateralized positions and sends a liquidation report to the Liiquidate smart contract
 2. **Flash Loan**: A flash loan is taken from either Aave V3 or Uniswap V4 to cover the debt amount
 3. **Liquidation**: The borrowed funds are used to liquidate the position, receiving collateral assets as compensation
 4. **Swap**: The received collateral is swapped back to the debt asset via Uniswap V4
@@ -187,11 +187,7 @@ The following environment variables are required for Tenderly Virtual TestNet:
 - **Reliable**: No network congestion
 - **Safe**: No risk of losing funds
 - **Reproducible**: Consistent testing environment
-
-### Limitations
-
-- Simulated environment may behave differently than mainnet
-- Limited to Tenderly's virtual network
+- **Debug**: Easy to find, understand and fix bugs
 
 ## Mainnet And Sepolia (... and other EVMS)
 
@@ -200,13 +196,13 @@ To deploy to either Mainnet or Sepolia, you need to update the Makefile to comme
 In the Makefile:
 
 1. **For Sepolia deployment:**
-   - Comment out the Tenderly NETWORK_ARGS and RPC_URL (lines 44-48)
-   - Uncomment the Sepolia NETWORK_ARGS and RPC_URL (lines 40-42)
+   - Comment out the Tenderly NETWORK_ARGS and RPC_URL 
+   - Uncomment the Sepolia NETWORK_ARGS and RPC_URL
 
 2. **For Mainnet deployment:**
-   - Comment out the Tenderly NETWORK_ARGS and RPC_URL (lines 44-48)
+   - Comment out the Tenderly NETWORK_ARGS and RPC_URL 
    - Add your Mainnet RPC URL to the .env file as `MAINNET_RPC_URL`
-   - Uncomment the Mainnet NETWORK_ARGS (lines 73-79) or add a similar configuration
+   - Uncomment the Mainnet NETWORK_ARGS and RPC_URL or add a similar configuration
 
 Then run:
 ```shell
@@ -218,6 +214,3 @@ make deploy-script ARGS="--network mainnet"
 
 **Note:** Ensure you have the required environment variables set in `.env` for the respective network (RPC URL, private key, Etherscan API key for verification).
 
-## License
-
-MIT
