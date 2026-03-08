@@ -85,7 +85,7 @@ contract HelperConfig is Script {
                 activeLiiBorrowConfig,
                 activeLiiquidateConfig,
                 activeMockConfig
-            ) = getSepoliaConfig(); // change to getMainnetConfig when not deploying, currently using sepolia as we using Tenderly Virtual TestNet
+            ) = getSepoliaConfig(); // change to getMainnetConfig when not deploying for simulation, currently using getSepoliaConfig as we using Tenderly Virtual TestNet
         }
     }
 
